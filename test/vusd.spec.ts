@@ -101,7 +101,7 @@ describe("VUSD", async function () {
       const amount = BigNumber.from(1000).mul(DECIMAL);
       const DAI = await ethers.getContractAt("ERC20", DAI_ADDRESS);
       await DAI.connect(signers[1]).approve(minter.address, amount);
-      await minter.connect(signers[1]).mint(DAI_ADDRESS, amount);
+      await minter.connect(signers[1])["mint(address,uint256)"](DAI_ADDRESS, amount);
       const vusdBalance = await vusd.balanceOf(signers[1].address);
       expect(vusdBalance).to.be.gt(0, "Incorrect VUSD balance");
       const halfBalance = vusdBalance.div(2);

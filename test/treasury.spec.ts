@@ -27,7 +27,7 @@ describe("VUSD Treasury", async function () {
     const amount = await tokenSwapper.swapEthForToken(inputAmount, toToken, caller);
     const Token = await ethers.getContractAt("ERC20", toToken);
     await Token.connect(caller).approve(minter.address, amount);
-    await minter.connect(caller).mint(toToken, amount);
+    await minter.connect(caller)["mint(address,uint256)"](toToken, amount);
     return amount;
   }
 
@@ -54,6 +54,7 @@ describe("VUSD Treasury", async function () {
     treasury = await treasuryFactory.deploy(vusd.address);
     expect(treasury.address).to.be.properAddress;
     await vusd.updateTreasury(treasury.address);
+    treasury.updateKeeper(signers[0].address);
   });
 
   context("Check Withdrawable", function () {
@@ -209,6 +210,31 @@ describe("VUSD Treasury", async function () {
       await treasury.updateRedeemer(signers[9].address);
       const tx = treasury.updateRedeemer(signers[9].address);
       await expect(tx).to.be.revertedWith("same-redeemer");
+    });
+  });
+
+  context("Update keeper", function () {
+    it("Should revert if caller is not governor", async function () {
+      const tx = treasury.connect(signers[4]).updateKeeper(signers[9].address);
+      await expect(tx).to.be.revertedWith("caller-is-not-the-governor");
+    });
+    it("Should revert if setting zero address as keeper", async function () {
+      const tx = treasury.updateKeeper(ZERO_ADDRESS);
+      await expect(tx).to.be.revertedWith("keeper-address-is-zero");
+    });
+
+    it("Should add new keeper", async function () {
+      const keeper = await treasury.keeper();
+      const newKeeper = signers[9].address;
+      const tx = treasury.updateKeeper(newKeeper);
+      await expect(tx).to.emit(treasury, "UpdatedKeeper").withArgs(keeper, newKeeper);
+      expect(await treasury.keeper()).to.eq(newKeeper, "Keeper update failed");
+    });
+
+    it("Should revert if setting same keeper", async function () {
+      await treasury.updateKeeper(signers[9].address);
+      const tx = treasury.updateKeeper(signers[9].address);
+      await expect(tx).to.be.revertedWith("same-keeper");
     });
   });
 

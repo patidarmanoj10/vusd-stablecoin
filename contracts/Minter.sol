@@ -89,14 +89,21 @@ contract Minter is Context, ReentrancyGuard {
      * @param _amount Amount of _token
      */
     function mint(address _token, uint256 _amount) external nonReentrant {
-        require(whitelistedTokens.contains(_token), "token-is-not-supported");
-        uint256 _mintage = _calculateMintage(_token, _amount);
-        require(availableMintage() >= _mintage, "mint-limit-reached");
-        IERC20(_token).safeTransferFrom(_msgSender(), address(this), _amount);
-        address _cToken = cTokens[_token];
-        require(CToken(_cToken).mint(_amount) == 0, "cToken-mint-failed");
-        IERC20(_cToken).safeTransfer(treasury(), IERC20(_cToken).balanceOf(address(this)));
-        vusd.mint(_msgSender(), _mintage);
+        _mint(_token, _amount, _msgSender());
+    }
+
+    /**
+     * @notice Mint VUSD
+     * @param _token Address of token being deposited
+     * @param _amount Amount of _token
+     * @param _receiver Address of VUSD receiver
+     */
+    function mint(
+        address _token,
+        uint256 _amount,
+        address _receiver
+    ) external nonReentrant {
+        _mint(_token, _amount, _receiver);
     }
 
     /**
@@ -106,8 +113,8 @@ contract Minter is Context, ReentrancyGuard {
      */
     function calculateMintage(address _token, uint256 _amount) external view returns (uint256 _mintReturn) {
         if (whitelistedTokens.contains(_token)) {
-            uint256 _mintage = _calculateMintage(_token, _amount);
-            return _mintage > availableMintage() ? 0 : _mintage;
+            (uint256 _mintage, ) = _calculateMintage(_token, _amount);
+            return _mintage;
         }
         // Return 0 for unsupported tokens.
         return 0;
@@ -143,14 +150,42 @@ contract Minter is Context, ReentrancyGuard {
     }
 
     /**
+     * @notice Mint VUSD
+     * @param _token Address of token being deposited
+     * @param _amount Amount of _token
+     * @param _receiver Address of VUSD receiver
+     */
+    function _mint(
+        address _token,
+        uint256 _amount,
+        address _receiver
+    ) internal {
+        require(whitelistedTokens.contains(_token), "token-is-not-supported");
+        (uint256 _mintage, uint256 _actualAmount) = _calculateMintage(_token, _amount);
+        require(_mintage != 0, "mint-limit-reached");
+        IERC20(_token).safeTransferFrom(_msgSender(), address(this), _actualAmount);
+        address _cToken = cTokens[_token];
+        require(CToken(_cToken).mint(_actualAmount) == 0, "cToken-mint-failed");
+        IERC20(_cToken).safeTransfer(treasury(), IERC20(_cToken).balanceOf(address(this)));
+        vusd.mint(_receiver, _mintage);
+    }
+
+    /**
      * @notice Calculate mintage based on mintingFee, if any.
      * Also covert _token defined decimal amount to 18 decimal amount
-     * @return VUSD mintage based on given input
+     * @return _mintage VUSD mintage based on given input
+     * @return _actualAmount Actual token amount used for _mintage
      */
-    function _calculateMintage(address _token, uint256 _amount) internal view returns (uint256) {
+    function _calculateMintage(address _token, uint256 _amount)
+        internal
+        view
+        returns (uint256 _mintage, uint256 _actualAmount)
+    {
         uint256 _decimals = IERC20Metadata(_token).decimals();
-        uint256 _mintage = mintingFee != 0 ? _amount - ((_amount * mintingFee) / MAX_MINTING_FEE) : _amount;
+        uint256 _availableAmount = availableMintage() / 10**(18 - _decimals);
+        _actualAmount = (_amount > _availableAmount) ? _availableAmount : _amount;
+        _mintage = (mintingFee != 0) ? _actualAmount - ((_actualAmount * mintingFee) / MAX_MINTING_FEE) : _actualAmount;
         // Convert final amount to 18 decimals
-        return _mintage * 10**(18 - _decimals);
+        _mintage = _mintage * 10**(18 - _decimals);
     }
 }
