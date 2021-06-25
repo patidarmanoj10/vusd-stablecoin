@@ -16,16 +16,14 @@ const FEE = ethers.BigNumber.from("4000000");
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const {deployments, getNamedAccounts} = hre;
-  const {get, save} = deployments;
+  const {save} = deployments;
   const {deployer} = await getNamedAccounts();
 
-  const deployedVUSD = await get(VUSD);
+  const deployedVUSD = "0x677ddbd918637E5F2c79e164D402454dE7dA8619";
 
   const CurveFactory = await ethers.getContractAt("ICurveFactory", CURVE_FACTORY);
 
-  let deployTx = await CurveFactory.deploy_metapool(THREEPOOL, VUSD, VUSD, deployedVUSD.address, A, FEE, {
-    from: deployer,
-  });
+  let deployTx = await CurveFactory.deploy_metapool(THREEPOOL, VUSD, VUSD, deployedVUSD, A, FEE);
 
   let deployTxInfo = await deployTx.wait();
   let events = deployTxInfo.events.filter((eventInfo) => eventInfo.event == "MetaPoolDeployed");
@@ -34,7 +32,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   // finds address of deployed metapool
   // can't get it from the event emitted, we use that just to make sure pool has been deployed
-  const CurveMetapoolAddress = await CurveFactory.find_pool_for_coins(deployedVUSD.address, USDC);
+  const CurveMetapoolAddress = await CurveFactory.find_pool_for_coins(deployedVUSD, USDC);
 
   const CurveMetapool = await ethers.getContractAt("ICurveMetapool", CurveMetapoolAddress);
   const deployedBytecode = await ethers.provider.getCode(CurveMetapoolAddress);
@@ -48,7 +46,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     transactionHash: deployTx.hash,
     execute: {
       methodName: "deploy_metapool",
-      args: [THREEPOOL, VUSD, VUSD, deployedVUSD.address, A, FEE],
+      args: [THREEPOOL, VUSD, VUSD, deployedVUSD, A, FEE],
     },
     deployedBytecode,
   });
@@ -56,4 +54,3 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 export default func;
 func.id = `${name}-${version}`;
 func.tags = [name];
-func.dependencies = [VUSD];
