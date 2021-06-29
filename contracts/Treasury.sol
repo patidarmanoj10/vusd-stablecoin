@@ -22,6 +22,8 @@ contract Treasury is Context, ReentrancyGuard {
     IAddressList public immutable cTokenList;
     IVUSD public immutable vusd;
     address public redeemer;
+    address public keeper;
+
     ISwapManager public swapManager = ISwapManager(0xC48ea9A2daA4d816e4c9333D6689C70070010174);
     mapping(address => address) public cTokens;
 
@@ -38,6 +40,7 @@ contract Treasury is Context, ReentrancyGuard {
     // solhint-enable
 
     event UpdatedRedeemer(address indexed previousRedeemer, address indexed newRedeemer);
+    event UpdatedKeeper(address indexed previousKeeper, address indexed newKeeper);
     event UpdatedSwapManager(address indexed previousSwapManager, address indexed newSwapManager);
 
     constructor(address _vusd) {
@@ -64,6 +67,11 @@ contract Treasury is Context, ReentrancyGuard {
 
     modifier onlyAuthorized() {
         require(_msgSender() == governor() || _msgSender() == redeemer, "caller-is-not-authorized");
+        _;
+    }
+
+    modifier onlyKeeperOrGovernor() {
+        require(_msgSender() == governor() || _msgSender() == keeper, "caller-is-not-authorized");
         _;
     }
 
@@ -104,6 +112,17 @@ contract Treasury is Context, ReentrancyGuard {
     }
 
     /**
+     * @notice Update keeper address
+     * @param _newKeeper new keeper address
+     */
+    function updateKeeper(address _newKeeper) external onlyGovernor {
+        require(_newKeeper != address(0), "keeper-address-is-zero");
+        require(keeper != _newKeeper, "same-keeper");
+        emit UpdatedKeeper(keeper, _newKeeper);
+        keeper = _newKeeper;
+    }
+
+    /**
      * @notice Update swap manager address
      * @param _newSwapManager new swap manager address
      */
@@ -122,7 +141,7 @@ contract Treasury is Context, ReentrancyGuard {
      * Also deposit those tokens to Compound
      * @param _toToken COMP will be swapped to _toToken
      */
-    function claimCompAndConvertTo(address _toToken) external onlyGovernor {
+    function claimCompAndConvertTo(address _toToken) external onlyKeeperOrGovernor {
         require(whitelistedTokens.contains(_toToken), "token-is-not-supported");
         uint256 _len = cTokenList.length();
         address[] memory _market = new address[](_len);

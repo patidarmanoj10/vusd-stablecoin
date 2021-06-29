@@ -27,7 +27,7 @@ describe("VUSD redeemer", async function () {
     const amount = await tokenSwapper.swapEthForToken("1", toToken, caller);
     const Token = await ethers.getContractAt("ERC20", toToken);
     await Token.connect(caller).approve(minter.address, amount);
-    await minter.connect(caller).mint(toToken, amount);
+    await minter.connect(caller)["mint(address,uint256)"](toToken, amount);
     return amount;
   }
 

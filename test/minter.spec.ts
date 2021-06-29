@@ -71,7 +71,7 @@ describe("VUSD Minter", async function () {
       const cDAI = await ethers.getContractAt("ERC20", cDAI_ADDRESS);
       expect(await cDAI.balanceOf(treasury)).to.be.eq(0, "CToken balance of treasury should be zero");
       const expectedVUSD = await minter.calculateMintage(DAI_ADDRESS, amount);
-      await minter.connect(signers[1]).mint(DAI_ADDRESS, amount);
+      await minter.connect(signers[1])["mint(address,uint256)"](DAI_ADDRESS, amount);
       const vusdBalance = await vusd.balanceOf(signers[1].address);
       expect(vusdBalance).to.be.eq(expectedVUSD, "Incorrect VUSD minted");
       expect(await cDAI.balanceOf(treasury)).to.be.gt(0, "Incorrect cToken balance in treasury");
@@ -85,7 +85,7 @@ describe("VUSD Minter", async function () {
       const cDaiBefore = await cDAI.balanceOf(treasury);
       // expect(await cDAI.balanceOf(treasury)).to.be.eq(0, "CToken balance of treasury should be zero");
       const expectedVUSD = await minter.calculateMintage(DAI_ADDRESS, amount);
-      await minter.connect(signers[1]).mint(DAI_ADDRESS, amount);
+      await minter.connect(signers[1])["mint(address,uint256)"](DAI_ADDRESS, amount);
       const vusdBalance = await vusd.balanceOf(signers[1].address);
       expect(vusdBalance).to.be.eq(expectedVUSD, "Incorrect VUSD minted");
       const cDaiAfter = await cDAI.balanceOf(treasury);
@@ -97,7 +97,7 @@ describe("VUSD Minter", async function () {
       const cUSDC = await ethers.getContractAt("ERC20", cUSDC_ADDRESS);
       expect(await cUSDC.balanceOf(treasury)).to.be.eq(0, "CToken balance of treasury should be zero");
       const expectedVUSD = await minter.calculateMintage(USDC_ADDRESS, amount);
-      await minter.connect(signers[2]).mint(USDC_ADDRESS, amount);
+      await minter.connect(signers[2])["mint(address,uint256)"](USDC_ADDRESS, amount);
       const vusdBalance = await vusd.balanceOf(signers[2].address);
       expect(vusdBalance).to.be.eq(expectedVUSD, "Incorrect VUSD minted");
       expect(await cUSDC.balanceOf(treasury)).to.be.gt(0, "Incorrect cToken balance in treasury");
@@ -108,15 +108,54 @@ describe("VUSD Minter", async function () {
       const cUSDT = await ethers.getContractAt("ERC20", cUSDT_ADDRESS);
       expect(await cUSDT.balanceOf(treasury)).to.be.eq(0, "CToken balance of treasury should be zero");
       const expectedVUSD = await minter.calculateMintage(USDT_ADDRESS, amount);
-      await minter.connect(signers[2]).mint(USDT_ADDRESS, amount);
+      await minter.connect(signers[2])["mint(address,uint256)"](USDT_ADDRESS, amount);
       const vusdBalance = await vusd.balanceOf(signers[2].address);
       expect(vusdBalance).to.be.eq(expectedVUSD, "Incorrect VUSD minted");
       expect(await cUSDT.balanceOf(treasury)).to.be.gt(0, "Incorrect cToken balance in treasury");
     });
 
+    it("Should allow mint to another address", async function () {
+      const amount = await swapEthForToken(DAI_ADDRESS, signers[1]);
+      const cDAI = await ethers.getContractAt("ERC20", cDAI_ADDRESS);
+      const expectedVUSD = await minter.calculateMintage(DAI_ADDRESS, amount);
+      await minter.connect(signers[1])["mint(address,uint256,address)"](DAI_ADDRESS, amount, signers[9].address);
+      const vusdBalance = await vusd.balanceOf(signers[9].address);
+      expect(vusdBalance).to.be.eq(expectedVUSD, "Incorrect VUSD minted");
+      expect(await cDAI.balanceOf(treasury)).to.be.gt(0, "Incorrect cToken balance in treasury");
+    });
+
+    it("Should mint max available VUSD when approaching mint limit", async function () {
+      const DAI = await ethers.getContractAt("ERC20", DAI_ADDRESS);
+      const currentMinter = await vusd.minter();
+
+      // mints max available VUSD minus 500 VUSD for edge case testing
+      const edgeBuffer = ethers.utils.parseEther("500");
+      const availableMintage = await minter.availableMintage();
+      await vusd.updateMinter(signers[0].address);
+      await vusd.mint(signers[0].address, availableMintage.sub(edgeBuffer));
+      await vusd.updateMinter(currentMinter);
+
+      const amount = await swapEthForToken(DAI_ADDRESS, signers[1]);
+      const expectedVUSD = await minter.calculateMintage(DAI_ADDRESS, amount);
+      await minter.connect(signers[1])["mint(address,uint256)"](DAI_ADDRESS, amount);
+      const vusdBalance = await vusd.balanceOf(signers[1].address);
+
+      expect(edgeBuffer).to.be.eq(expectedVUSD, "Incorrect calculateMintage");
+      expect(vusdBalance).to.be.eq(expectedVUSD, "Incorrect VUSD minted");
+
+      // if we're using 2000 DAI but only 500 VUSD has been minted
+      // we should have some DAI left in our wallet
+      const daiBalance = await DAI.balanceOf(signers[1].address);
+      expect(daiBalance.gt(0)).to.equal(true);
+
+      // we shouldn't be able to mint more because we reached limit
+      const tx = minter.connect(signers[1])["mint(address,uint256)"](DAI_ADDRESS, daiBalance);
+      expect(tx).to.be.revertedWith("mint-limit-reached");
+    });
+
     it("Should revert if token is not whitelisted", async function () {
       const amount = BigNumber.from(1000).mul(DECIMAL);
-      const tx = minter.connect(signers[1]).mint(WETH_ADDRESS, amount);
+      const tx = minter.connect(signers[1])["mint(address,uint256)"](WETH_ADDRESS, amount);
       await expect(tx).to.be.revertedWith("token-is-not-supported");
     });
   });
