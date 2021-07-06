@@ -6,6 +6,7 @@ import {HardhatUserConfig} from "hardhat/types";
 import "solidity-coverage";
 import "hardhat-log-remover";
 import "hardhat-gas-reporter";
+import "hardhat-contract-sizer";
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -33,16 +34,16 @@ const config: HardhatUserConfig = {
     ropsten: {
       url: process.env.NODE_URL_ROPSTEN,
       chainId: 3,
-    }
+    },
   },
   paths: {
     deployments: "deployments",
   },
   namedAccounts: {
-    deployer: process.env.DEPLOYER || 0
+    deployer: process.env.DEPLOYER || 0,
   },
   solidity: {
-    compilers: [{version: "0.8.3", settings: {}}],
+    version: "0.8.3",
   },
 };
 
