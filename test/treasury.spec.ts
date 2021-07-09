@@ -20,7 +20,7 @@ const cETH_ADDRESS = Address.cETH_ADDRESS;
 
 describe("VUSD Treasury", async function () {
   let vusd: VUSD, minter: Minter, treasury: Treasury;
-  let signers;
+  let signers, keeper;
 
   async function mintVUSD(toToken: string, caller: SignerWithAddress, amountIn?: string): Promise<BigNumber> {
     const inputAmount = amountIn || "1";
@@ -54,7 +54,8 @@ describe("VUSD Treasury", async function () {
     treasury = await treasuryFactory.deploy(vusd.address);
     expect(treasury.address).to.be.properAddress;
     await vusd.updateTreasury(treasury.address);
-    treasury.updateKeeper(signers[0].address);
+    keeper = signers[1];
+    treasury.updateKeeper(keeper.address);
   });
 
   context("Check Withdrawable", function () {
@@ -160,16 +161,29 @@ describe("VUSD Treasury", async function () {
       await mineBlocks(1000);
       const cUSDC = await ethers.getContractAt("ERC20", cUSDC_ADDRESS);
       expect(await cUSDC.balanceOf(treasury.address)).to.be.eq(0, "cUSDC balance should be zero");
-      await treasury.claimCompAndConvertTo(USDC_ADDRESS);
+      await treasury.claimCompAndConvertTo(USDC_ADDRESS, 1);
       expect(await cUSDC.balanceOf(treasury.address)).to.be.gt(0, "cUSDC balance should be > 0");
     });
 
+    it("Should claim comp via keeper call", async function () {
+      await mintVUSD(USDC_ADDRESS, signers[4], "100");
+      await mineBlocks(1000);
+      const cDAI = await ethers.getContractAt("ERC20", cDAI_ADDRESS);
+      expect(await cDAI.balanceOf(treasury.address)).to.be.eq(0, "cDAI balance should be zero");
+      await treasury.connect(keeper).claimCompAndConvertTo(DAI_ADDRESS, 1);
+      expect(await cDAI.balanceOf(treasury.address)).to.be.gt(0, "cDAI balance should be > 0");
+    });
+
     it("Should revert if token is not supported", async function () {
-      const tx = treasury.claimCompAndConvertTo(WETH_ADDRESS);
+      const tx = treasury.claimCompAndConvertTo(WETH_ADDRESS, 1);
       await expect(tx).to.be.revertedWith("token-is-not-supported");
     });
-  });
 
+    it("Should revert if caller is not authorized", async function () {
+      const tx = treasury.connect(signers[6]).claimCompAndConvertTo(WETH_ADDRESS, 1);
+      await expect(tx).to.be.revertedWith("caller-is-not-authorized");
+    });
+  });
 
   context("Sweep token", function () {
     it("Should sweep token", async function () {
@@ -178,7 +192,7 @@ describe("VUSD Treasury", async function () {
       const balanceBefore = await DAI.balanceOf(signers[0].address);
       await treasury.sweep(DAI_ADDRESS);
       const balanceAfter = await DAI.balanceOf(signers[0].address);
-      await treasury.claimCompAndConvertTo(USDC_ADDRESS);
+      await treasury.claimCompAndConvertTo(USDC_ADDRESS, 1);
       expect(balanceAfter.sub(balanceBefore)).to.be.eq(daiAmount, "Sweep token amount is not correct");
     });
 

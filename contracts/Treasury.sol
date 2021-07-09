@@ -140,8 +140,9 @@ contract Treasury is Context, ReentrancyGuard {
      * @notice Claim comp from all markets and convert to given token.
      * Also deposit those tokens to Compound
      * @param _toToken COMP will be swapped to _toToken
+     * @param _minOut Minimum _toToken expected after conversion
      */
-    function claimCompAndConvertTo(address _toToken) external onlyKeeperOrGovernor {
+    function claimCompAndConvertTo(address _toToken, uint256 _minOut) external onlyKeeperOrGovernor {
         require(whitelistedTokens.contains(_toToken), "token-is-not-supported");
         uint256 _len = cTokenList.length();
         address[] memory _market = new address[](_len);
@@ -155,10 +156,10 @@ contract Treasury is Context, ReentrancyGuard {
         if (amountOut != 0) {
             swapManager.ROUTERS(rIdx).swapExactTokensForTokens(
                 _compAmount,
-                1,
+                _minOut,
                 path,
                 address(this),
-                block.timestamp + 30
+                block.timestamp
             );
         }
         require(CToken(cTokens[_toToken]).mint(IERC20(_toToken).balanceOf(address(this))) == 0, "cToken-mint-failed");
