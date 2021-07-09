@@ -10,6 +10,7 @@ import "./interfaces/bloq/IAddressListFactory.sol";
 import "./interfaces/bloq/ISwapManager.sol";
 import "./interfaces/compound/ICompound.sol";
 import "./interfaces/IVUSD.sol";
+import "./interfaces/ITreasury.sol";
 
 /// @title VUSD Treasury, It stores cTokens and redeem those from Compound as needed.
 contract Treasury is Context, ReentrancyGuard {
@@ -163,6 +164,20 @@ contract Treasury is Context, ReentrancyGuard {
             );
         }
         require(CToken(cTokens[_toToken]).mint(IERC20(_toToken).balanceOf(address(this))) == 0, "cToken-mint-failed");
+    }
+
+    /**
+     * @notice Migrate assets to new treasury
+     * @param _newTreasury Address of new treasury of VUSD system
+     */
+    function migrate(address _newTreasury) external onlyGovernor {
+        require(_newTreasury != address(0), "new-treasury-address-is-zero");
+        require(address(vusd) == ITreasury(_newTreasury).vusd(), "vusd-mismatch");
+        uint256 _len = cTokenList.length();
+        for (uint256 i = 0; i < _len; i++) {
+            (address _cToken, ) = cTokenList.at(i);
+            IERC20(_cToken).safeTransfer(_newTreasury, IERC20(_cToken).balanceOf(address(this)));
+        }
     }
 
     /**

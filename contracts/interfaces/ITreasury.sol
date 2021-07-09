@@ -16,4 +16,6 @@ interface ITreasury {
     function withdrawable(address _token) external view returns (uint256);
 
     function whitelistedTokens() external view returns (IAddressList);
+
+    function vusd() external view returns (address);
 }
