@@ -39,8 +39,18 @@ describe("VUSD Treasury", async function () {
     }
   }
 
+  async function deployTreasury(vusd: VUSD, caller: SignerWithAddress) {
+    const treasuryFactory = (await ethers.getContractFactory("Treasury", caller)) as Treasury__factory;
+    const treasury: Treasury = await treasuryFactory.deploy(vusd.address);
+    expect(treasury.address).to.be.properAddress;
+    await vusd.updateTreasury(treasury.address);
+    treasury.updateKeeper(keeper.address);
+    return treasury;
+  }
+
   beforeEach(async function () {
     signers = await ethers.getSigners();
+    keeper = signers[1];
     const vusdFactory = (await ethers.getContractFactory("VUSD", signers[0])) as VUSD__factory;
     vusd = await vusdFactory.deploy(signers[8].address);
     expect(vusd.address).to.be.properAddress;
@@ -50,12 +60,7 @@ describe("VUSD Treasury", async function () {
     expect(minter.address).to.be.properAddress;
     await vusd.updateMinter(minter.address);
 
-    const treasuryFactory = (await ethers.getContractFactory("Treasury", signers[0])) as Treasury__factory;
-    treasury = await treasuryFactory.deploy(vusd.address);
-    expect(treasury.address).to.be.properAddress;
-    await vusd.updateTreasury(treasury.address);
-    keeper = signers[1];
-    treasury.updateKeeper(keeper.address);
+    treasury = await deployTreasury(vusd, signers[0]);
   });
 
   context("Check Withdrawable", function () {
@@ -182,6 +187,41 @@ describe("VUSD Treasury", async function () {
     it("Should revert if caller is not authorized", async function () {
       const tx = treasury.connect(signers[6]).claimCompAndConvertTo(WETH_ADDRESS, 1);
       await expect(tx).to.be.revertedWith("caller-is-not-authorized");
+    });
+  });
+
+  context("Migrate to new treasury", function () {
+    it("Should revert if new treasury address is zero", async function () {
+      const tx = treasury.migrate(ZERO_ADDRESS);
+      await expect(tx).to.be.revertedWith("new-treasury-address-is-zero");
+    });
+    it("Should revert if vusd doesn't match", async function () {
+      // Deploy new treasury
+      const treasuryFactory = (await ethers.getContractFactory("Treasury", signers[0])) as Treasury__factory;
+      // passing DAI address as VUSD
+      const newTreasury = await treasuryFactory.deploy(DAI_ADDRESS);
+      const tx = treasury.migrate(newTreasury.address);
+      await expect(tx).to.be.revertedWith("vusd-mismatch");
+    });
+    it("Should transfer all cTokens to new treasury", async function () {
+      await mintVUSD(DAI_ADDRESS, signers[4], "100");
+      await mintVUSD(USDC_ADDRESS, signers[5], "100");
+      const cDAI = await ethers.getContractAt("ERC20", cDAI_ADDRESS);
+      const cUSDC = await ethers.getContractAt("ERC20", cUSDC_ADDRESS);
+      const cDAIBalance = await cDAI.balanceOf(treasury.address);
+      const cUSDCBalance = await cUSDC.balanceOf(treasury.address);
+
+      // Deploy new treasury
+      const newTreasury = await deployTreasury(vusd, signers[0]);
+      expect(await cDAI.balanceOf(newTreasury.address)).to.be.eq(0, "cDAI balance should be zero");
+      expect(await cUSDC.balanceOf(newTreasury.address)).to.be.eq(0, "cUSDC balance should be zero");
+
+      await treasury.migrate(newTreasury.address);
+      expect(await cDAI.balanceOf(newTreasury.address)).to.be.eq(cDAIBalance, "cDAI in new treasury is wrong");
+      expect(await cUSDC.balanceOf(newTreasury.address)).to.be.eq(cUSDCBalance, "cUSDC in new treasury is wrong");
+
+      expect(await cDAI.balanceOf(treasury.address)).to.be.eq(0, "cDAI balance should be zero");
+      expect(await cUSDC.balanceOf(treasury.address)).to.be.eq(0, "cUSDC balance should be zero");
     });
   });
 
