@@ -21,9 +21,9 @@ contract Treasury is Context, ReentrancyGuard {
 
     IAddressList public immutable whitelistedTokens;
     IAddressList public immutable cTokenList;
+    IAddressList public immutable keepers;
     IVUSD public immutable vusd;
     address public redeemer;
-    address public keeper;
 
     ISwapManager public swapManager = ISwapManager(0xC48ea9A2daA4d816e4c9333D6689C70070010174);
     mapping(address => address) public cTokens;
@@ -41,7 +41,6 @@ contract Treasury is Context, ReentrancyGuard {
     // solhint-enable
 
     event UpdatedRedeemer(address indexed previousRedeemer, address indexed newRedeemer);
-    event UpdatedKeeper(address indexed previousKeeper, address indexed newKeeper);
     event UpdatedSwapManager(address indexed previousSwapManager, address indexed newSwapManager);
 
     constructor(address _vusd) {
@@ -51,6 +50,9 @@ contract Treasury is Context, ReentrancyGuard {
         IAddressListFactory _factory = IAddressListFactory(0xded8217De022706A191eE7Ee0Dc9df1185Fb5dA3);
         IAddressList _whitelistedTokens = IAddressList(_factory.createList());
         IAddressList _cTokenList = IAddressList(_factory.createList());
+        IAddressList _keepers = IAddressList(_factory.createList());
+        _keepers.add(_msgSender());
+
         // Add token into the list, add cToken into the mapping
         _addToken(_whitelistedTokens, DAI, _cTokenList, cDAI);
         _addToken(_whitelistedTokens, USDC, _cTokenList, cUSDC);
@@ -58,6 +60,7 @@ contract Treasury is Context, ReentrancyGuard {
 
         whitelistedTokens = _whitelistedTokens;
         cTokenList = _cTokenList;
+        keepers = _keepers;
         _approveRouters(swapManager, type(uint256).max);
     }
 
@@ -72,7 +75,7 @@ contract Treasury is Context, ReentrancyGuard {
     }
 
     modifier onlyKeeperOrGovernor() {
-        require(_msgSender() == governor() || _msgSender() == keeper, "caller-is-not-authorized");
+        require(_msgSender() == governor() || keepers.contains(_msgSender()), "caller-is-not-authorized");
         _;
     }
 
@@ -113,14 +116,20 @@ contract Treasury is Context, ReentrancyGuard {
     }
 
     /**
-     * @notice Update keeper address
-     * @param _newKeeper new keeper address
+     * @notice Add given address in keepers list.
+     * @param _keeperAddress keeper address to add.
      */
-    function updateKeeper(address _newKeeper) external onlyGovernor {
-        require(_newKeeper != address(0), "keeper-address-is-zero");
-        require(keeper != _newKeeper, "same-keeper");
-        emit UpdatedKeeper(keeper, _newKeeper);
-        keeper = _newKeeper;
+    function addKeeper(address _keeperAddress) external onlyGovernor {
+        require(_keeperAddress != address(0), "keeper-address-is-zero");
+        require(keepers.add(_keeperAddress), "add-keeper-failed");
+    }
+
+    /**
+     * @notice Remove given address from keepers list.
+     * @param _keeperAddress keeper address to remove.
+     */
+    function removeKeeper(address _keeperAddress) external onlyGovernor {
+        require(keepers.remove(_keeperAddress), "remove-keeper-failed");
     }
 
     /**

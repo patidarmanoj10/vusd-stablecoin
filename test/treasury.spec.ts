@@ -44,7 +44,7 @@ describe("VUSD Treasury", async function () {
     const treasury: Treasury = await treasuryFactory.deploy(vusd.address);
     expect(treasury.address).to.be.properAddress;
     await vusd.updateTreasury(treasury.address);
-    treasury.updateKeeper(keeper.address);
+    treasury.addKeeper(keeper.address);
     return treasury;
   }
 
@@ -269,26 +269,27 @@ describe("VUSD Treasury", async function () {
 
   context("Update keeper", function () {
     it("Should revert if caller is not governor", async function () {
-      const tx = treasury.connect(signers[4]).updateKeeper(signers[9].address);
+      const tx = treasury.connect(signers[4]).addKeeper(signers[9].address);
       await expect(tx).to.be.revertedWith("caller-is-not-the-governor");
     });
     it("Should revert if setting zero address as keeper", async function () {
-      const tx = treasury.updateKeeper(ZERO_ADDRESS);
+      const tx = treasury.addKeeper(ZERO_ADDRESS);
       await expect(tx).to.be.revertedWith("keeper-address-is-zero");
     });
 
     it("Should add new keeper", async function () {
-      const keeper = await treasury.keeper();
-      const newKeeper = signers[9].address;
-      const tx = treasury.updateKeeper(newKeeper);
-      await expect(tx).to.emit(treasury, "UpdatedKeeper").withArgs(keeper, newKeeper);
-      expect(await treasury.keeper()).to.eq(newKeeper, "Keeper update failed");
+      const keepers = await treasury.keepers();
+      let addressList = await ethers.getContractAt("IAddressList", keepers);
+      const newKeeper = signers[10].address;
+      await treasury.addKeeper(newKeeper);
+      expect(await addressList.length()).to.eq(3,"add keeper failed");
     });
 
-    it("Should revert if setting same keeper", async function () {
-      await treasury.updateKeeper(signers[9].address);
-      const tx = treasury.updateKeeper(signers[9].address);
-      await expect(tx).to.be.revertedWith("same-keeper");
+    it("Should remove a keeper", async function () {
+      const keepers = await treasury.keepers();
+      let addressList = await ethers.getContractAt("IAddressList", keepers);
+      await treasury.removeKeeper(keeper.address);
+      expect(await addressList.length()).to.eq(1,"remove keeper failed");
     });
   });
 
