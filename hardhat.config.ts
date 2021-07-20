@@ -30,11 +30,7 @@ const config: HardhatUserConfig = {
       chainId: 1,
       gas: 6700000,
       gasPrice,
-    },
-    ropsten: {
-      url: process.env.NODE_URL_ROPSTEN,
-      chainId: 3,
-    },
+    }
   },
   paths: {
     deployments: "deployments",
