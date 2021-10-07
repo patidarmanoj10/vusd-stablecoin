@@ -16,7 +16,7 @@ contract Minter is Context, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     string public constant NAME = "VUSD-Minter";
-    string public constant VERSION = "1.1.0";
+    string public constant VERSION = "1.2.1";
 
     IAddressList public immutable whitelistedTokens;
     IVUSD public immutable vusd;
@@ -69,7 +69,7 @@ contract Minter is Context, ReentrancyGuard {
      */
     function removeWhitelistedToken(address _token) external onlyGovernor {
         require(whitelistedTokens.remove(_token), "remove-from-list-failed");
-        IERC20(_token).approve(cTokens[_token], 0);
+        IERC20(_token).safeApprove(cTokens[_token], 0);
         delete cTokens[_token];
     }
 
