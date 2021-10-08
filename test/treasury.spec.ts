@@ -354,7 +354,7 @@ describe("VUSD Treasury", async function () {
         await expect(tx).to.be.revertedWith("caller-is-not-the-governor");
       });
 
-      it.only("Should remove token from whitelist", async function () {
+      it("Should remove token from whitelist", async function () {
         await treasury.removeWhitelistedToken(USDT_ADDRESS);
         expect(await addressList.length()).to.be.equal("2", "Address removed successfully");
         expect(await cTokenAddressList.length()).to.be.equal("2", "cToken address removed successfully");

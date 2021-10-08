@@ -213,7 +213,7 @@ describe("VUSD Minter", async function () {
         await expect(tx).to.be.revertedWith("caller-is-not-the-governor");
       });
 
-      it.only("Should remove token from whitelist", async function () {
+      it("Should remove token from whitelist", async function () {
         await minter.removeWhitelistedToken(USDT_ADDRESS);
         expect(await addressList.length()).to.be.equal("2", "Address removed successfully");
         expect(await minter.cTokens(USDT_ADDRESS)).to.be.eq(ZERO_ADDRESS, "CToken should be removed");
