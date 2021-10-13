@@ -214,9 +214,9 @@ describe("VUSD Minter", async function () {
       });
 
       it("Should remove token from whitelist", async function () {
-        await minter.removeWhitelistedToken(DAI_ADDRESS);
+        await minter.removeWhitelistedToken(USDT_ADDRESS);
         expect(await addressList.length()).to.be.equal("2", "Address removed successfully");
-        expect(await minter.cTokens(DAI_ADDRESS)).to.be.eq(ZERO_ADDRESS, "CToken should be removed");
+        expect(await minter.cTokens(USDT_ADDRESS)).to.be.eq(ZERO_ADDRESS, "CToken should be removed");
       });
 
       it("Should revert if token not in list", async function () {

@@ -17,7 +17,7 @@ contract Treasury is Context, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     string public constant NAME = "VUSD-Treasury";
-    string public constant VERSION = "1.1.0";
+    string public constant VERSION = "1.2.1";
 
     IAddressList public immutable whitelistedTokens;
     IAddressList public immutable cTokenList;
@@ -100,7 +100,7 @@ contract Treasury is Context, ReentrancyGuard {
     function removeWhitelistedToken(address _token) external onlyGovernor {
         require(whitelistedTokens.remove(_token), "remove-from-list-failed");
         require(cTokenList.remove(cTokens[_token]), "remove-from-list-failed");
-        IERC20(_token).approve(cTokens[_token], 0);
+        IERC20(_token).safeApprove(cTokens[_token], 0);
         delete cTokens[_token];
     }
 
@@ -161,8 +161,11 @@ contract Treasury is Context, ReentrancyGuard {
         }
         COMPTROLLER.claimComp(address(this), _market);
         uint256 _compAmount = IERC20(COMP).balanceOf(address(this));
-        (address[] memory path, uint256 amountOut, uint256 rIdx) =
-            swapManager.bestOutputFixedInput(COMP, _toToken, _compAmount);
+        (address[] memory path, uint256 amountOut, uint256 rIdx) = swapManager.bestOutputFixedInput(
+            COMP,
+            _toToken,
+            _compAmount
+        );
         if (amountOut != 0) {
             swapManager.ROUTERS(rIdx).swapExactTokensForTokens(
                 _compAmount,

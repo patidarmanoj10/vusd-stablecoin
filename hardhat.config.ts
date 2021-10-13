@@ -10,7 +10,7 @@ import "hardhat-contract-sizer";
 import dotenv from "dotenv";
 dotenv.config();
 
-const gasPrice = 55000000000;
+const gasPrice = 80000000000;
 
 const config: HardhatUserConfig = {
   defaultNetwork: "hardhat",
@@ -30,7 +30,7 @@ const config: HardhatUserConfig = {
       chainId: 1,
       gas: 6700000,
       gasPrice,
-    }
+    },
   },
   paths: {
     deployments: "deployments",

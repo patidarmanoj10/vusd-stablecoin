@@ -1,0 +1,12 @@
+{
+  "version": "1.2.1",
+  "networks": {
+    "mainnet": {
+      "VUSD": "0x677ddbd918637E5F2c79e164D402454dE7dA8619",
+      "Minter": "0xb652Fc42E12828F3F1b3e96283b199E62EC570Db",
+      "Redeemer": "0x7915CE4F43E1378f0C3720351A973A023F7fB3e8",
+      "Treasury": "0x9dfC7054B78E6f48f2D8e064B95B4251fc2E9692",
+      "CurveMetapool": "0x4dF9E1A764Fb8Df1113EC02fc9dc75963395b508"
+    }
+  }
+}

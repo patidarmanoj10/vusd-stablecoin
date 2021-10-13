@@ -279,17 +279,17 @@ describe("VUSD Treasury", async function () {
 
     it("Should add new keeper", async function () {
       const keepers = await treasury.keepers();
-      let addressList = await ethers.getContractAt("IAddressList", keepers);
+      const addressList = await ethers.getContractAt("IAddressList", keepers);
       const newKeeper = signers[10].address;
       await treasury.addKeeper(newKeeper);
-      expect(await addressList.length()).to.eq(3,"add keeper failed");
+      expect(await addressList.length()).to.eq(3, "add keeper failed");
     });
 
     it("Should remove a keeper", async function () {
       const keepers = await treasury.keepers();
-      let addressList = await ethers.getContractAt("IAddressList", keepers);
+      const addressList = await ethers.getContractAt("IAddressList", keepers);
       await treasury.removeKeeper(keeper.address);
-      expect(await addressList.length()).to.eq(1,"remove keeper failed");
+      expect(await addressList.length()).to.eq(1, "remove keeper failed");
     });
   });
 
@@ -355,10 +355,10 @@ describe("VUSD Treasury", async function () {
       });
 
       it("Should remove token from whitelist", async function () {
-        await treasury.removeWhitelistedToken(DAI_ADDRESS);
+        await treasury.removeWhitelistedToken(USDT_ADDRESS);
         expect(await addressList.length()).to.be.equal("2", "Address removed successfully");
         expect(await cTokenAddressList.length()).to.be.equal("2", "cToken address removed successfully");
-        expect(await treasury.cTokens(DAI_ADDRESS)).to.be.eq(ZERO_ADDRESS, "CToken should be removed");
+        expect(await treasury.cTokens(USDT_ADDRESS)).to.be.eq(ZERO_ADDRESS, "CToken should be removed");
       });
 
       it("Should revert if token not in list", async function () {
