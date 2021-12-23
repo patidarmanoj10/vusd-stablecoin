@@ -13,6 +13,8 @@ interface ITreasury {
         address _tokenReceiver
     ) external;
 
+    function oracles(address _token) external view returns (address);
+
     function withdrawable(address _token) external view returns (uint256);
 
     function whitelistedTokens() external view returns (IAddressList);

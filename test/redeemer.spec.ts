@@ -1,5 +1,6 @@
 import {ethers} from "hardhat";
 import chai from "chai";
+import {smock} from "@defi-wonderland/smock";
 import {
   VUSD,
   VUSD__factory,
@@ -31,6 +32,12 @@ describe("VUSD redeemer", async function () {
     return amount;
   }
 
+  async function mockOracle(oracleAddress, price) {
+    const fakeOracle = await smock.fake("IAggregatorV3", {address: oracleAddress});
+    await fakeOracle.decimals.returns(8);
+    await fakeOracle.latestRoundData.returns([1, price, 1, 1, 1]);
+  }
+
   beforeEach(async function () {
     signers = await ethers.getSigners();
     [, user1, user2, user3, user4] = signers;
@@ -52,51 +59,64 @@ describe("VUSD redeemer", async function () {
     expect(treasury.address).to.be.properAddress;
     await vusd.updateTreasury(treasury.address);
     await treasury.updateRedeemer(redeemer.address);
+
+    // To pass existing tests, mock oracle to return price as 1.0
+    await mockOracle(Address.DAI_USD, 100000000);
+    await mockOracle(Address.USDC_USD, 100000000);
   });
 
   context("Check redeemable", function () {
     it("Should return zero redeemable when no balance", async function () {
-      expect(await redeemer["redeemable(address)"](Address.DAI_ADDRESS)).to.be.eq(0, "redeemable should be zero");
+      expect(await redeemer["redeemable(address)"](Address.DAI)).to.be.eq(0, "redeemable should be zero");
     });
 
     it("Should return valid redeemable", async function () {
-      await mintVUSD(Address.USDC_ADDRESS, user1);
-      expect(await redeemer["redeemable(address)"](Address.USDC_ADDRESS)).to.be.gt(0, "redeemable should be > 0");
+      await mintVUSD(Address.USDC, user1);
+      expect(await redeemer["redeemable(address)"](Address.USDC)).to.be.gt(0, "redeemable should be > 0");
     });
 
     it("Should return valid redeemable when query with amount", async function () {
-      const depositAmount = await mintVUSD(Address.DAI_ADDRESS, user1);
-      const cDAI = await ethers.getContractAt("CToken", Address.cDAI_ADDRESS);
+      const depositAmount = await mintVUSD(Address.DAI, user1);
+      const cDAI = await ethers.getContractAt("CToken", Address.cDAI);
       await cDAI.exchangeRateCurrent();
-      const redeemable = await redeemer["redeemable(address,uint256)"](Address.DAI_ADDRESS, depositAmount);
+      const redeemable = await redeemer["redeemable(address,uint256)"](Address.DAI, depositAmount);
       expect(redeemable).to.be.gt(0, "redeemable should be > 0");
     });
 
     it("Should return zero redeemable when token is not supported", async function () {
-      const tx = await redeemer["redeemable(address,uint256)"](Address.WETH_ADDRESS, 100);
+      const tx = await redeemer["redeemable(address,uint256)"](Address.WETH, 100);
       expect(tx).to.be.eq(0, "redeemable should be zero");
+    });
+
+    it("Should return zero redeemable when calculated redeemable is > total redeemable", async function () {
+      const depositAmount = await mintVUSD(Address.DAI, user1);
+      const cDAI = await ethers.getContractAt("CToken", Address.cDAI);
+      await cDAI.exchangeRateCurrent();
+      await mockOracle(Address.DAI_USD, 100600000); // Price is > 1.0
+      const redeemable = await redeemer["redeemable(address,uint256)"](Address.DAI, depositAmount);
+      expect(redeemable).to.be.eq(0, "redeemable should be zero");
     });
   });
 
   context("Redeem token", function () {
     it("Should redeem token and burn VUSD", async function () {
-      const token = Address.USDT_ADDRESS;
+      const token = Address.USDC;
       await mintVUSD(token, user2);
       const amountToWithdraw = await vusd.balanceOf(user2.address);
       await vusd.connect(user2).approve(redeemer.address, amountToWithdraw);
-      const USDT = await ethers.getContractAt("ERC20", token);
-      expect(await USDT.balanceOf(user2.address)).to.be.eq(0, "Governor balance should be zero");
+      const USDC = await ethers.getContractAt("ERC20", token);
+      expect(await USDC.balanceOf(user2.address)).to.be.eq(0, "Governor balance should be zero");
 
-      const cUSDT = await ethers.getContractAt("CToken", Address.cUSDT_ADDRESS);
-      await cUSDT.exchangeRateCurrent();
+      const cUSDC = await ethers.getContractAt("CToken", Address.cUSDC);
+      await cUSDC.exchangeRateCurrent();
 
       const redeemAmount = await redeemer["redeemable(address,uint256)"](token, amountToWithdraw);
       await redeemer.connect(user2)["redeem(address,uint256)"](token, amountToWithdraw);
-      expect(await USDT.balanceOf(user2.address)).to.be.eq(redeemAmount, "Incorrect USDT balance");
+      expect(await USDC.balanceOf(user2.address)).to.be.eq(redeemAmount, "Incorrect USDC balance");
     });
 
     it("Should allow redeem to another address", async function () {
-      const token = Address.DAI_ADDRESS;
+      const token = Address.DAI;
       await mintVUSD(token, user3);
       const amountToWithdraw = ethers.utils.parseUnits("1000", "ether"); // 1000 DAI
       await vusd.connect(user3).approve(redeemer.address, amountToWithdraw);
@@ -104,6 +124,21 @@ describe("VUSD redeemer", async function () {
       expect(await DAI.balanceOf(user4.address)).to.be.eq(0, "User balance should be zero");
       await redeemer.connect(user3)["redeem(address,uint256,address)"](token, amountToWithdraw, user4.address);
       expect(await DAI.balanceOf(user4.address)).to.be.eq(amountToWithdraw, "Incorrect DAI balance");
+    });
+
+    it("Should revert if tries to redeem more than total redeemable", async function () {
+      const token = Address.DAI;
+      const depositAmount = await mintVUSD(token, user3);
+      await vusd.connect(user3).approve(redeemer.address, depositAmount);
+      // Given higher price of DAI at the time of redeem, also there is only 1 user in system. Withdrawing all
+      // This will cause redeemable to higher than what was initially deposited due to price difference
+      await mockOracle(Address.DAI_USD, 100600000); // Price is > 1.0
+
+      // Due to higher price, redeemable is higher than total redeemable, hence view function return 0
+      expect(await redeemer["redeemable(address,uint256)"](token, depositAmount)).to.eq(0, "incorrect redeemable");
+      // Redeem will fail, as not enough tokens to redeem
+      const tx = redeemer.connect(user3)["redeem(address,uint256)"](token, depositAmount);
+      await expect(tx).to.revertedWith("redeem-underlying-failed");
     });
   });
 

@@ -1,6 +1,6 @@
 {
   "name": "vusd",
-  "version": "1.0.0",
+  "version": "1.3.0",
   "description": "VUSD, A stablecoin pegged to the US Dollar",
   "license": "MIT",
   "directories": {
@@ -23,6 +23,7 @@
     "postinstall": "patch-package"
   },
   "devDependencies": {
+    "@defi-wonderland/smock": "2.0.7",
     "@nomiclabs/hardhat-ethers": "npm:hardhat-deploy-ethers",
     "@nomiclabs/hardhat-waffle": "^2.0.1",
     "@openzeppelin/contracts": "^4.0.0",

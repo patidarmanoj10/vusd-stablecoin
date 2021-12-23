@@ -13,7 +13,7 @@ describe("Live mint and redeem test", async function () {
     minter = (await ethers.getContractAt("Minter", releases.networks.mainnet.Minter)) as Minter;
     redeemer = (await ethers.getContractAt("Redeemer", releases.networks.mainnet.Redeemer)) as Redeemer;
     vusd = (await ethers.getContractAt("VUSD", releases.networks.mainnet.VUSD)) as VUSD;
-    usdc = (await ethers.getContractAt("ERC20", address.USDC_ADDRESS)) as ERC20;
+    usdc = (await ethers.getContractAt("ERC20", address.USDC)) as ERC20;
   });
 
   it("Should verify mint and redeem", async function () {
@@ -29,14 +29,14 @@ describe("Live mint and redeem test", async function () {
     // Approve to mint VUSD
     const usdcAmount = ethers.utils.parseUnits("1000", 6); // 1000 USDC
     await usdc.connect(signer).approve(minter.address, usdcAmount);
-    await minter.connect(signer)["mint(address,uint256)"](address.USDC_ADDRESS, usdcAmount);
+    await minter.connect(signer)["mint(address,uint256)"](address.USDC, usdcAmount);
 
     const vUSDBalance = await vusd.balanceOf(signer.address);
     expect(vUSDBalance).to.eq(ethers.utils.parseUnits(usdcAmount.toString(), 12), "Incorrect VUSD amount");
 
     // Approve VUSD to redeem USDC
     await vusd.connect(signer).approve(redeemer.address, vUSDBalance);
-    await redeemer.connect(signer)["redeem(address,uint256)"](address.USDC_ADDRESS, vUSDBalance);
+    await redeemer.connect(signer)["redeem(address,uint256)"](address.USDC, vUSDBalance);
     expect(await vusd.balanceOf(signer.address)).to.eq(0, "VUSD amount should be zero");
   });
 });
