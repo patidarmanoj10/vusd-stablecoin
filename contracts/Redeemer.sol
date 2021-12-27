@@ -12,7 +12,7 @@ import "./interfaces/ITreasury.sol";
 /// @title VUSD Redeemer, User can redeem their VUSD with any supported tokens
 contract Redeemer is Context, ReentrancyGuard {
     string public constant NAME = "VUSD-Redeemer";
-    string public constant VERSION = "1.3.0";
+    string public constant VERSION = "1.4.0";
 
     IVUSD public immutable vusd;
 
@@ -75,7 +75,7 @@ contract Redeemer is Context, ReentrancyGuard {
      */
     function redeemable(address _token, uint256 _vusdAmount) external view returns (uint256) {
         ITreasury _treasury = ITreasury(treasury());
-        if (_treasury.whitelistedTokens().contains(_token)) {
+        if (_treasury.isWhitelistedToken(_token)) {
             uint256 _redeemable = _calculateRedeemable(_token, _vusdAmount);
             return _redeemable > redeemable(_token) ? 0 : _redeemable;
         }

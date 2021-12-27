@@ -6,8 +6,7 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/Context.sol";
-import "./interfaces/bloq/IAddressList.sol";
-import "./interfaces/bloq/IAddressListFactory.sol";
+import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import "./interfaces/chainlink/IAggregatorV3.sol";
 import "./interfaces/compound/ICompound.sol";
 import "./interfaces/IVUSD.sol";
@@ -15,11 +14,11 @@ import "./interfaces/IVUSD.sol";
 /// @title Minter contract which will mint VUSD 1:1, less minting fee, with DAI, USDC or USDT.
 contract Minter is Context, ReentrancyGuard {
     using SafeERC20 for IERC20;
+    using EnumerableSet for EnumerableSet.AddressSet;
 
     string public constant NAME = "VUSD-Minter";
-    string public constant VERSION = "1.3.0";
+    string public constant VERSION = "1.4.0";
 
-    IAddressList public immutable whitelistedTokens;
     IVUSD public immutable vusd;
 
     uint256 public mintingFee; // Default no fee
@@ -34,6 +33,8 @@ contract Minter is Context, ReentrancyGuard {
     mapping(address => address) public cTokens;
     // Token => oracle mapping
     mapping(address => address) public oracles;
+
+    EnumerableSet.AddressSet private _whitelistedTokens;
 
     // Default whitelist token addresses
     address private constant DAI = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
@@ -55,13 +56,9 @@ contract Minter is Context, ReentrancyGuard {
         require(_vusd != address(0), "vusd-address-is-zero");
         vusd = IVUSD(_vusd);
 
-        IAddressListFactory _factory = IAddressListFactory(0xded8217De022706A191eE7Ee0Dc9df1185Fb5dA3);
-        IAddressList _whitelistedTokens = IAddressList(_factory.createList());
         // Add token into the list, add oracle and cToken into the mapping and approve cToken to spend token
-        _addToken(_whitelistedTokens, DAI, cDAI, DAI_USD);
-        _addToken(_whitelistedTokens, USDC, cUSDC, USDC_USD);
-
-        whitelistedTokens = _whitelistedTokens;
+        _addToken(DAI, cDAI, DAI_USD);
+        _addToken(USDC, cUSDC, USDC_USD);
     }
 
     modifier onlyGovernor() {
@@ -82,7 +79,10 @@ contract Minter is Context, ReentrancyGuard {
         address _cToken,
         address _oracle
     ) external onlyGovernor {
-        _addToken(whitelistedTokens, _token, _cToken, _oracle);
+        require(_token != address(0), "token-address-is-zero");
+        require(_cToken != address(0), "cToken-address-is-zero");
+        require(_oracle != address(0), "oracle-address-is-zero");
+        _addToken(_token, _cToken, _oracle);
     }
 
     /**
@@ -90,7 +90,7 @@ contract Minter is Context, ReentrancyGuard {
      * @param _token address which we want to remove from token list.
      */
     function removeWhitelistedToken(address _token) external onlyGovernor {
-        require(whitelistedTokens.remove(_token), "remove-from-list-failed");
+        require(_whitelistedTokens.remove(_token), "remove-from-list-failed");
         IERC20(_token).safeApprove(cTokens[_token], 0);
         delete cTokens[_token];
         delete oracles[_token];
@@ -143,7 +143,7 @@ contract Minter is Context, ReentrancyGuard {
      * @param _amount Amount of _token
      */
     function calculateMintage(address _token, uint256 _amount) external view returns (uint256 _mintReturn) {
-        if (whitelistedTokens.contains(_token)) {
+        if (_whitelistedTokens.contains(_token)) {
             (uint256 _mintage, ) = _calculateMintage(_token, _amount);
             return _mintage;
         }
@@ -158,10 +158,20 @@ contract Minter is Context, ReentrancyGuard {
      * @param _token Address of any of whitelisted token
      */
     function isMintingAllowed(address _token) external view returns (bool) {
-        if (whitelistedTokens.contains(_token)) {
+        if (_whitelistedTokens.contains(_token)) {
             return _isMintingAllowed(_token);
         }
         return false;
+    }
+
+    /// @notice Returns whether given address is whitelisted or not
+    function isWhitelistedToken(address _address) external view returns (bool) {
+        return _whitelistedTokens.contains(_address);
+    }
+
+    /// @notice Return list of whitelisted tokens
+    function whitelistedTokens() external view returns (address[] memory) {
+        return _whitelistedTokens.values();
     }
 
     /// @notice Check available mintage based on mint limit
@@ -184,12 +194,11 @@ contract Minter is Context, ReentrancyGuard {
      * approve cToken to spend token
      */
     function _addToken(
-        IAddressList _list,
         address _token,
         address _cToken,
         address _oracle
     ) internal {
-        require(_list.add(_token), "add-in-list-failed");
+        require(_whitelistedTokens.add(_token), "add-in-list-failed");
         oracles[_token] = _oracle;
         cTokens[_token] = _cToken;
         IERC20(_token).safeApprove(_cToken, type(uint256).max);
@@ -206,7 +215,7 @@ contract Minter is Context, ReentrancyGuard {
         uint256 _amount,
         address _receiver
     ) internal {
-        require(whitelistedTokens.contains(_token), "token-is-not-supported");
+        require(_whitelistedTokens.contains(_token), "token-is-not-supported");
         require(_isMintingAllowed(_token), "too-much-token-price-deviation");
         (uint256 _mintage, uint256 _actualAmount) = _calculateMintage(_token, _amount);
         require(_mintage != 0, "mint-limit-reached");

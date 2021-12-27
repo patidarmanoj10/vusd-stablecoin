@@ -193,11 +193,6 @@ describe("VUSD Minter", async function () {
   });
 
   describe("Update token whitelist", function () {
-    let tokenWhitelist, addressList;
-    beforeEach(async function () {
-      tokenWhitelist = await minter.whitelistedTokens();
-      addressList = await ethers.getContractAt("IAddressList", tokenWhitelist);
-    });
     context("Add token in whitelist", function () {
       it("Should revert if caller is not governor", async function () {
         const tx = minter.connect(signers[4]).addWhitelistedToken(DAI_ADDRESS, cDAI_ADDRESS, DAI_USD);
@@ -205,8 +200,9 @@ describe("VUSD Minter", async function () {
       });
 
       it("Should add token address in whitelist", async function () {
+        expect((await minter.whitelistedTokens()).length).to.be.equal(2, "incorrect token count");
         await minter.addWhitelistedToken(WETH_ADDRESS, cETH_ADDRESS, ETH_USD);
-        expect(await addressList.length()).to.be.equal("3", "Address added successfully");
+        expect((await minter.whitelistedTokens()).length).to.be.equal(3, "Address added successfully");
         expect(await minter.cTokens(WETH_ADDRESS)).to.be.eq(cETH_ADDRESS, "Wrong cToken");
       });
 
@@ -224,7 +220,7 @@ describe("VUSD Minter", async function () {
 
       it("Should remove token from whitelist", async function () {
         await minter.removeWhitelistedToken(USDC_ADDRESS);
-        expect(await addressList.length()).to.be.equal("1", "Address removed successfully");
+        expect((await minter.whitelistedTokens()).length).to.be.equal(1, "Address removed successfully");
         expect(await minter.cTokens(USDC_ADDRESS)).to.be.eq(ZERO_ADDRESS, "CToken should be removed");
       });
 
