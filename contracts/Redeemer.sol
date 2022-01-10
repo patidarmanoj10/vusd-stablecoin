@@ -5,13 +5,14 @@ pragma solidity 0.8.3;
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/utils/Context.sol";
+import "./interfaces/chainlink/IAggregatorV3.sol";
 import "./interfaces/IVUSD.sol";
 import "./interfaces/ITreasury.sol";
 
 /// @title VUSD Redeemer, User can redeem their VUSD with any supported tokens
 contract Redeemer is Context, ReentrancyGuard {
     string public constant NAME = "VUSD-Redeemer";
-    string public constant VERSION = "1.1.0";
+    string public constant VERSION = "1.3.0";
 
     IVUSD public immutable vusd;
 
@@ -110,13 +111,18 @@ contract Redeemer is Context, ReentrancyGuard {
     }
 
     /**
-     * @notice Calculate redeemable amount based on redeemFee, if any.
+     * @notice Calculate redeemable amount based on oracle price and redeemFee, if any.
      * Also covert 18 decimal VUSD amount to _token defined decimal amount.
      * @return Token amount that user will get after burning vusdAmount
      */
     function _calculateRedeemable(address _token, uint256 _vusdAmount) internal view returns (uint256) {
-        uint256 _decimals = IERC20Metadata(_token).decimals();
-        uint256 _redeemable = redeemFee != 0 ? _vusdAmount - ((_vusdAmount * redeemFee) / MAX_REDEEM_FEE) : _vusdAmount;
-        return _redeemable / 10**(18 - _decimals);
+        IAggregatorV3 _oracle = IAggregatorV3(ITreasury(treasury()).oracles(_token));
+        (, int256 _price, , , ) = IAggregatorV3(_oracle).latestRoundData();
+        uint256 _redeemable = (_vusdAmount * uint256(_price)) / (10**IAggregatorV3(_oracle).decimals());
+        if (redeemFee != 0) {
+            _redeemable -= (_redeemable * redeemFee) / MAX_REDEEM_FEE;
+        }
+        // convert redeemable to _token defined decimal
+        return _redeemable / 10**(18 - IERC20Metadata(_token).decimals());
     }
 }

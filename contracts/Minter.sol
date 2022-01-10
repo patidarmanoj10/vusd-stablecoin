@@ -8,6 +8,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/Context.sol";
 import "./interfaces/bloq/IAddressList.sol";
 import "./interfaces/bloq/IAddressListFactory.sol";
+import "./interfaces/chainlink/IAggregatorV3.sol";
 import "./interfaces/compound/ICompound.sol";
 import "./interfaces/IVUSD.sol";
 
@@ -16,22 +17,39 @@ contract Minter is Context, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     string public constant NAME = "VUSD-Minter";
-    string public constant VERSION = "1.2.1";
+    string public constant VERSION = "1.3.0";
 
     IAddressList public immutable whitelistedTokens;
     IVUSD public immutable vusd;
 
     uint256 public mintingFee; // Default no fee
-    uint256 public constant MAX_MINTING_FEE = 10_000; // 10_000 = 100%
+    uint256 public constant MAX_BPS = 10_000; // 10_000 = 100%
     uint256 public constant MINT_LIMIT = 50_000_000 * 10**18; // 50M VUSD
+    uint256 private constant STABLE_PRICE = 100_000_000;
+    uint256 public priceDeviationLimit = 400; // 4% based on BPS
+    uint256 internal priceUpperBound;
+    uint256 internal priceLowerBound;
 
+    // Token => cToken mapping
     mapping(address => address) public cTokens;
+    // Token => oracle mapping
+    mapping(address => address) public oracles;
 
-    address internal constant DAI = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
-    address internal constant USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
-    address internal constant USDT = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
+    // Default whitelist token addresses
+    address private constant DAI = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
+    address private constant USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
+
+    // cToken addresses for default whitelisted tokens
+    //solhint-disable const-name-snakecase
+    address private constant cDAI = 0x5d3a536E4D6DbD6114cc1Ead35777bAB948E3643;
+    address private constant cUSDC = 0x39AA39c021dfbaE8faC545936693aC917d5E7563;
+
+    // Chainlink price oracle for default whitelisted tokens
+    address private constant DAI_USD = 0xAed0c38402a5d19df6E4c03F4E2DceD6e29c1ee9;
+    address private constant USDC_USD = 0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6;
 
     event UpdatedMintingFee(uint256 previousMintingFee, uint256 newMintingFee);
+    event UpdatedPriceDeviationLimit(uint256 previousDeviationLimit, uint256 newDeviationLimit);
 
     constructor(address _vusd) {
         require(_vusd != address(0), "vusd-address-is-zero");
@@ -39,10 +57,9 @@ contract Minter is Context, ReentrancyGuard {
 
         IAddressListFactory _factory = IAddressListFactory(0xded8217De022706A191eE7Ee0Dc9df1185Fb5dA3);
         IAddressList _whitelistedTokens = IAddressList(_factory.createList());
-        // Add token into the list, add cToken into the mapping and approve cToken to spend token
-        _addToken(_whitelistedTokens, DAI, address(0x5d3a536E4D6DbD6114cc1Ead35777bAB948E3643));
-        _addToken(_whitelistedTokens, USDC, address(0x39AA39c021dfbaE8faC545936693aC917d5E7563));
-        _addToken(_whitelistedTokens, USDT, address(0xf650C3d88D12dB855b8bf7D11Be6C55A4e07dCC9));
+        // Add token into the list, add oracle and cToken into the mapping and approve cToken to spend token
+        _addToken(_whitelistedTokens, DAI, cDAI, DAI_USD);
+        _addToken(_whitelistedTokens, USDC, cUSDC, USDC_USD);
 
         whitelistedTokens = _whitelistedTokens;
     }
@@ -58,9 +75,14 @@ contract Minter is Context, ReentrancyGuard {
      * @dev Add token address in whitelistedTokens list and add cToken in mapping
      * @param _token address which we want to add in token list.
      * @param _cToken CToken address correspond to _token
+     * @param _oracle Chainlink oracle address for token/USD feed
      */
-    function addWhitelistedToken(address _token, address _cToken) external onlyGovernor {
-        _addToken(whitelistedTokens, _token, _cToken);
+    function addWhitelistedToken(
+        address _token,
+        address _cToken,
+        address _oracle
+    ) external onlyGovernor {
+        _addToken(whitelistedTokens, _token, _cToken, _oracle);
     }
 
     /**
@@ -71,14 +93,23 @@ contract Minter is Context, ReentrancyGuard {
         require(whitelistedTokens.remove(_token), "remove-from-list-failed");
         IERC20(_token).safeApprove(cTokens[_token], 0);
         delete cTokens[_token];
+        delete oracles[_token];
     }
 
     /// @notice Update minting fee
     function updateMintingFee(uint256 _newMintingFee) external onlyGovernor {
-        require(_newMintingFee <= MAX_MINTING_FEE, "minting-fee-limit-reached");
+        require(_newMintingFee <= MAX_BPS, "minting-fee-limit-reached");
         require(mintingFee != _newMintingFee, "same-minting-fee");
         emit UpdatedMintingFee(mintingFee, _newMintingFee);
         mintingFee = _newMintingFee;
+    }
+
+    /// @notice Update price deviation limit
+    function updatePriceDeviationLimit(uint256 _newDeviationLimit) external onlyGovernor {
+        require(_newDeviationLimit <= MAX_BPS, "price-deviation-is-invalid");
+        require(priceDeviationLimit != _newDeviationLimit, "same-price-deviation-limit");
+        emit UpdatedPriceDeviationLimit(priceDeviationLimit, _newDeviationLimit);
+        priceDeviationLimit = _newDeviationLimit;
     }
 
     ///////////////////////////////////////////////////////////////////////////
@@ -120,6 +151,19 @@ contract Minter is Context, ReentrancyGuard {
         return 0;
     }
 
+    /**
+     * @notice Check whether minting is allowed or not.
+     * @dev We are using chainlink oracle to check latest price and if price
+     * is within allowed range then only minting is allowed.
+     * @param _token Address of any of whitelisted token
+     */
+    function isMintingAllowed(address _token) external view returns (bool) {
+        if (whitelistedTokens.contains(_token)) {
+            return _isMintingAllowed(_token);
+        }
+        return false;
+    }
+
     /// @notice Check available mintage based on mint limit
     function availableMintage() public view returns (uint256 _mintage) {
         return MINT_LIMIT - vusd.totalSupply();
@@ -142,9 +186,11 @@ contract Minter is Context, ReentrancyGuard {
     function _addToken(
         IAddressList _list,
         address _token,
-        address _cToken
+        address _cToken,
+        address _oracle
     ) internal {
         require(_list.add(_token), "add-in-list-failed");
+        oracles[_token] = _oracle;
         cTokens[_token] = _cToken;
         IERC20(_token).safeApprove(_cToken, type(uint256).max);
     }
@@ -161,6 +207,7 @@ contract Minter is Context, ReentrancyGuard {
         address _receiver
     ) internal {
         require(whitelistedTokens.contains(_token), "token-is-not-supported");
+        require(_isMintingAllowed(_token), "too-much-token-price-deviation");
         (uint256 _mintage, uint256 _actualAmount) = _calculateMintage(_token, _amount);
         require(_mintage != 0, "mint-limit-reached");
         IERC20(_token).safeTransferFrom(_msgSender(), address(this), _actualAmount);
@@ -184,8 +231,21 @@ contract Minter is Context, ReentrancyGuard {
         uint256 _decimals = IERC20Metadata(_token).decimals();
         uint256 _availableAmount = availableMintage() / 10**(18 - _decimals);
         _actualAmount = (_amount > _availableAmount) ? _availableAmount : _amount;
-        _mintage = (mintingFee != 0) ? _actualAmount - ((_actualAmount * mintingFee) / MAX_MINTING_FEE) : _actualAmount;
+        _mintage = (mintingFee != 0) ? _actualAmount - ((_actualAmount * mintingFee) / MAX_BPS) : _actualAmount;
         // Convert final amount to 18 decimals
         _mintage = _mintage * 10**(18 - _decimals);
+    }
+
+    function _isMintingAllowed(address _token) internal view returns (bool) {
+        address _oracle = oracles[_token];
+        uint8 _oracleDecimal = IAggregatorV3(_oracle).decimals();
+        uint256 _stablePrice = 10**_oracleDecimal;
+        uint256 _deviationInPrice = (_stablePrice * priceDeviationLimit) / MAX_BPS;
+        uint256 _priceUpperBound = _stablePrice + _deviationInPrice;
+        uint256 _priceLowerBound = _stablePrice - _deviationInPrice;
+        (, int256 _price, , , ) = IAggregatorV3(_oracle).latestRoundData();
+
+        uint256 _latestPrice = uint256(_price);
+        return _latestPrice <= _priceUpperBound && _latestPrice >= _priceLowerBound;
     }
 }

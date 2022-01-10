@@ -3,11 +3,11 @@ import chai from "chai";
 import {VUSD, VUSD__factory, Minter__factory, Minter} from "../typechain";
 import {BigNumber} from "@ethersproject/bignumber";
 import tokenSwapper from "./utils/tokenSwapper";
+import Address from "./utils/address";
 const {expect} = chai;
 
-const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
-const DECIMAL = BigNumber.from("1000000000000000000");
-const DAI_ADDRESS = "0x6B175474E89094C44Da98b954EedeAC495271d0F";
+const ZERO_ADDRESS = Address.ZERO;
+const DAI_ADDRESS = Address.DAI;
 
 describe("VUSD", async function () {
   let vusd: VUSD;
@@ -98,7 +98,7 @@ describe("VUSD", async function () {
       await vusd.updateMinter(minter.address);
 
       await tokenSwapper.swapEthForToken("1", DAI_ADDRESS, signers[1]);
-      const amount = BigNumber.from(1000).mul(DECIMAL);
+      const amount = ethers.utils.parseEther("1000");
       const DAI = await ethers.getContractAt("ERC20", DAI_ADDRESS);
       await DAI.connect(signers[1]).approve(minter.address, amount);
       await minter.connect(signers[1])["mint(address,uint256)"](DAI_ADDRESS, amount);

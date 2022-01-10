@@ -8,15 +8,18 @@ import Address from "./utils/address";
 
 const {expect} = chai;
 
-const ZERO_ADDRESS = Address.ZERO_ADDRESS;
-const DAI_ADDRESS = Address.DAI_ADDRESS;
-const USDC_ADDRESS = Address.USDC_ADDRESS;
-const USDT_ADDRESS = Address.USDT_ADDRESS;
-const WETH_ADDRESS = Address.WETH_ADDRESS;
+const ZERO_ADDRESS = Address.ZERO;
+const DAI_ADDRESS = Address.DAI;
+const USDC_ADDRESS = Address.USDC;
+const USDT_ADDRESS = Address.USDT;
+const WETH_ADDRESS = Address.WETH;
 
-const cDAI_ADDRESS = Address.cDAI_ADDRESS;
-const cUSDC_ADDRESS = Address.cUSDC_ADDRESS;
-const cETH_ADDRESS = Address.cETH_ADDRESS;
+const cDAI_ADDRESS = Address.cDAI;
+const cUSDC_ADDRESS = Address.cUSDC;
+const cETH_ADDRESS = Address.cETH;
+
+const DAI_USD = Address.DAI_USD;
+const ETH_USD = Address.ETH_USD;
 
 describe("VUSD Treasury", async function () {
   let vusd: VUSD, minter: Minter, treasury: Treasury;
@@ -93,11 +96,11 @@ describe("VUSD Treasury", async function () {
 
     it("Should allow withdraw by redeemer", async function () {
       await treasury.updateRedeemer(signers[3].address);
-      await mintVUSD(USDT_ADDRESS, signers[3]);
+      await mintVUSD(USDC_ADDRESS, signers[3]);
       const amountToWithdraw = ethers.utils.parseUnits("1000", "mwei"); // 1000 USDT
-      const USDT = await ethers.getContractAt("ERC20", USDT_ADDRESS);
+      const USDT = await ethers.getContractAt("ERC20", USDC_ADDRESS);
       expect(await USDT.balanceOf(signers[3].address)).to.be.eq(0, "Governor balance should be zero");
-      await treasury.connect(signers[3])["withdraw(address,uint256)"](USDT_ADDRESS, amountToWithdraw);
+      await treasury.connect(signers[3])["withdraw(address,uint256)"](USDC_ADDRESS, amountToWithdraw);
       expect(await USDT.balanceOf(signers[3].address)).to.be.eq(amountToWithdraw, "Incorrect USDT balance");
     });
 
@@ -323,29 +326,31 @@ describe("VUSD Treasury", async function () {
     });
     context("Add token in whitelist", function () {
       it("Should revert if caller is not governor", async function () {
-        const tx = treasury.connect(signers[4]).addWhitelistedToken(DAI_ADDRESS, cDAI_ADDRESS);
+        const tx = treasury.connect(signers[4]).addWhitelistedToken(DAI_ADDRESS, cDAI_ADDRESS, DAI_USD);
         await expect(tx).to.be.revertedWith("caller-is-not-the-governor");
       });
 
       it("Should revert if setting zero address for token", async function () {
-        const tx = treasury.addWhitelistedToken(ZERO_ADDRESS, cETH_ADDRESS);
+        const tx = treasury.addWhitelistedToken(ZERO_ADDRESS, cETH_ADDRESS, ETH_USD);
         await expect(tx).to.be.revertedWith("token-address-is-zero");
       });
 
       it("Should revert if setting zero address for cToken", async function () {
-        const tx = treasury.addWhitelistedToken(WETH_ADDRESS, ZERO_ADDRESS);
+        const tx = treasury.addWhitelistedToken(WETH_ADDRESS, ZERO_ADDRESS, ETH_USD);
         await expect(tx).to.be.revertedWith("cToken-address-is-zero");
       });
 
       it("Should add token address in whitelist", async function () {
-        await treasury.addWhitelistedToken(WETH_ADDRESS, cETH_ADDRESS);
+        await treasury.addWhitelistedToken(WETH_ADDRESS, cETH_ADDRESS, ETH_USD);
         expect(await addressList.length()).to.be.equal("4", "Address added successfully");
         expect(await cTokenAddressList.length()).to.be.equal("4", "cToken address added successfully");
         expect(await treasury.cTokens(WETH_ADDRESS)).to.be.eq(cETH_ADDRESS, "Wrong cToken");
       });
 
       it("Should revert if address already exist in list", async function () {
-        await expect(treasury.addWhitelistedToken(DAI_ADDRESS, cDAI_ADDRESS)).to.be.revertedWith("add-in-list-failed");
+        await expect(treasury.addWhitelistedToken(DAI_ADDRESS, cDAI_ADDRESS, DAI_USD)).to.be.revertedWith(
+          "add-in-list-failed"
+        );
       });
     });
     context("Remove token address from whitelist", function () {

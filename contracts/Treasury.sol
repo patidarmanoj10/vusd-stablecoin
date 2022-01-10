@@ -17,7 +17,7 @@ contract Treasury is Context, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     string public constant NAME = "VUSD-Treasury";
-    string public constant VERSION = "1.2.1";
+    string public constant VERSION = "1.3.0";
 
     IAddressList public immutable whitelistedTokens;
     IAddressList public immutable cTokenList;
@@ -26,19 +26,31 @@ contract Treasury is Context, ReentrancyGuard {
     address public redeemer;
 
     ISwapManager public swapManager = ISwapManager(0xC48ea9A2daA4d816e4c9333D6689C70070010174);
+
+    // Token => cToken mapping
     mapping(address => address) public cTokens;
+    // Token => oracle mapping
+    mapping(address => address) public oracles;
 
     address internal constant COMP = 0xc00e94Cb662C3520282E6f5717214004A7f26888;
     Comptroller internal constant COMPTROLLER = Comptroller(0x3d9819210A31b4961b30EF54bE2aeD79B9c9Cd3B);
+
+    // Default whitelist token addresses
     address internal constant DAI = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
     address internal constant USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
     address internal constant USDT = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
 
+    // cToken addresses for default whitelisted tokens
     // solhint-disable const-name-snakecase
     address internal constant cDAI = 0x5d3a536E4D6DbD6114cc1Ead35777bAB948E3643;
     address internal constant cUSDC = 0x39AA39c021dfbaE8faC545936693aC917d5E7563;
     address internal constant cUSDT = 0xf650C3d88D12dB855b8bf7D11Be6C55A4e07dCC9;
     // solhint-enable
+
+    // Chainlink price oracle for default whitelisted tokens
+    address private constant DAI_USD = 0xAed0c38402a5d19df6E4c03F4E2DceD6e29c1ee9;
+    address private constant USDC_USD = 0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6;
+    address private constant USDT_USD = 0x3E7d1eAB13ad0104d2750B8863b489D65364e32D;
 
     event UpdatedRedeemer(address indexed previousRedeemer, address indexed newRedeemer);
     event UpdatedSwapManager(address indexed previousSwapManager, address indexed newSwapManager);
@@ -54,9 +66,9 @@ contract Treasury is Context, ReentrancyGuard {
         _keepers.add(_msgSender());
 
         // Add token into the list, add cToken into the mapping
-        _addToken(_whitelistedTokens, DAI, _cTokenList, cDAI);
-        _addToken(_whitelistedTokens, USDC, _cTokenList, cUSDC);
-        _addToken(_whitelistedTokens, USDT, _cTokenList, cUSDT);
+        _addToken(_whitelistedTokens, DAI, _cTokenList, cDAI, DAI_USD);
+        _addToken(_whitelistedTokens, USDC, _cTokenList, cUSDC, USDC_USD);
+        _addToken(_whitelistedTokens, USDT, _cTokenList, cUSDT, USDT_USD);
 
         whitelistedTokens = _whitelistedTokens;
         cTokenList = _cTokenList;
@@ -85,11 +97,16 @@ contract Treasury is Context, ReentrancyGuard {
      * @dev Add token address in whitelistedTokens list and add cToken in mapping
      * @param _token address which we want to add in token list.
      * @param _cToken CToken address correspond to _token
+     * @param _oracle Chainlink oracle address for token/USD feed
      */
-    function addWhitelistedToken(address _token, address _cToken) external onlyGovernor {
+    function addWhitelistedToken(
+        address _token,
+        address _cToken,
+        address _oracle
+    ) external onlyGovernor {
         require(_token != address(0), "token-address-is-zero");
         require(_cToken != address(0), "cToken-address-is-zero");
-        _addToken(whitelistedTokens, _token, cTokenList, _cToken);
+        _addToken(whitelistedTokens, _token, cTokenList, _cToken, _oracle);
     }
 
     /**
@@ -101,6 +118,7 @@ contract Treasury is Context, ReentrancyGuard {
         require(whitelistedTokens.remove(_token), "remove-from-list-failed");
         require(cTokenList.remove(cTokens[_token]), "remove-from-list-failed");
         IERC20(_token).safeApprove(cTokens[_token], 0);
+        delete cTokens[_token];
         delete cTokens[_token];
     }
 
@@ -281,10 +299,12 @@ contract Treasury is Context, ReentrancyGuard {
         IAddressList _list,
         address _token,
         IAddressList _cTokenList,
-        address _cToken
+        address _cToken,
+        address _oracle
     ) internal {
         require(_list.add(_token), "add-in-list-failed");
         require(_cTokenList.add(_cToken), "add-in-list-failed");
+        oracles[_token] = _oracle;
         cTokens[_token] = _cToken;
         IERC20(_token).safeApprove(_cToken, type(uint256).max);
     }

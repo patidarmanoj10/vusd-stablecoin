@@ -1,23 +1,28 @@
 import {ethers} from "hardhat";
 import chai from "chai";
+import {smock} from "@defi-wonderland/smock";
 import {VUSD, VUSD__factory, Minter, Minter__factory} from "../typechain";
 import {BigNumber} from "@ethersproject/bignumber";
 import tokenSwapper from "./utils/tokenSwapper";
+import Address from "./utils/address";
 import {SignerWithAddress} from "@nomiclabs/hardhat-ethers/signers";
 
 const {expect} = chai;
 
-const DECIMAL = BigNumber.from("1000000000000000000");
-const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
-const DAI_ADDRESS = "0x6B175474E89094C44Da98b954EedeAC495271d0F";
-const USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
-const USDT_ADDRESS = "0xdAC17F958D2ee523a2206206994597C13D831ec7";
-const WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
+const ZERO_ADDRESS = Address.ZERO;
+const DAI_ADDRESS = Address.DAI;
+const USDC_ADDRESS = Address.USDC;
+const USDT_ADDRESS = Address.USDT;
+const WETH_ADDRESS = Address.WETH;
 
-const cDAI_ADDRESS = "0x5d3a536E4D6DbD6114cc1Ead35777bAB948E3643";
-const cUSDC_ADDRESS = "0x39AA39c021dfbaE8faC545936693aC917d5E7563";
-const cUSDT_ADDRESS = "0xf650C3d88D12dB855b8bf7D11Be6C55A4e07dCC9";
-const cETH_ADDRESS = "0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5";
+const cDAI_ADDRESS = Address.cDAI;
+const cUSDC_ADDRESS = Address.cUSDC;
+const cUSDT_ADDRESS = Address.cUSDT;
+const cETH_ADDRESS = Address.cETH;
+
+const DAI_USD = Address.DAI_USD;
+const ETH_USD = Address.ETH_USD;
+const USDT_USD = Address.USDT_USD;
 
 describe("VUSD Minter", async function () {
   let vusd: VUSD, minter: Minter;
@@ -37,16 +42,16 @@ describe("VUSD Minter", async function () {
 
   describe("Calculate mintage", function () {
     it("Should calculate mintage for 1000 DAI deposit", async function () {
-      const amount = BigNumber.from(1000).mul(DECIMAL);
+      const amount = ethers.utils.parseEther("1000");
       const fee = await minter.mintingFee();
-      const maxFee = await minter.MAX_MINTING_FEE();
+      const maxFee = await minter.MAX_BPS();
       const expectedMintage = amount.sub(amount.mul(fee).div(maxFee));
       const actualMintage = await minter.calculateMintage(DAI_ADDRESS, amount);
       expect(actualMintage).to.be.eq(expectedMintage, "Incorrect mintage calculation");
     });
 
     it("Should return 0 mintage if not whitelisted token", async function () {
-      const amount = BigNumber.from(1000).mul(DECIMAL);
+      const amount = ethers.utils.parseEther("1000");
       const actualMintage = await minter.calculateMintage(WETH_ADDRESS, amount);
       expect(actualMintage).to.be.eq("0", "Incorrect mintage calculation");
     });
@@ -104,6 +109,8 @@ describe("VUSD Minter", async function () {
     });
 
     it("Should deposit USDT and mint VUSD", async function () {
+      // Add USDT as whitelisted token
+      await minter.addWhitelistedToken(USDT_ADDRESS, cUSDT_ADDRESS, USDT_USD);
       const amount = await swapEthForToken(USDT_ADDRESS, signers[2]);
       const cUSDT = await ethers.getContractAt("ERC20", cUSDT_ADDRESS);
       expect(await cUSDT.balanceOf(treasury)).to.be.eq(0, "CToken balance of treasury should be zero");
@@ -154,7 +161,7 @@ describe("VUSD Minter", async function () {
     });
 
     it("Should revert if token is not whitelisted", async function () {
-      const amount = BigNumber.from(1000).mul(DECIMAL);
+      const amount = ethers.utils.parseEther("1000");
       const tx = minter.connect(signers[1])["mint(address,uint256)"](WETH_ADDRESS, amount);
       await expect(tx).to.be.revertedWith("token-is-not-supported");
     });
@@ -193,18 +200,20 @@ describe("VUSD Minter", async function () {
     });
     context("Add token in whitelist", function () {
       it("Should revert if caller is not governor", async function () {
-        const tx = minter.connect(signers[4]).addWhitelistedToken(DAI_ADDRESS, cDAI_ADDRESS);
+        const tx = minter.connect(signers[4]).addWhitelistedToken(DAI_ADDRESS, cDAI_ADDRESS, DAI_USD);
         await expect(tx).to.be.revertedWith("caller-is-not-the-governor");
       });
 
       it("Should add token address in whitelist", async function () {
-        await minter.addWhitelistedToken(WETH_ADDRESS, cETH_ADDRESS);
-        expect(await addressList.length()).to.be.equal("4", "Address added successfully");
+        await minter.addWhitelistedToken(WETH_ADDRESS, cETH_ADDRESS, ETH_USD);
+        expect(await addressList.length()).to.be.equal("3", "Address added successfully");
         expect(await minter.cTokens(WETH_ADDRESS)).to.be.eq(cETH_ADDRESS, "Wrong cToken");
       });
 
       it("Should revert if address already exist in list", async function () {
-        await expect(minter.addWhitelistedToken(DAI_ADDRESS, cDAI_ADDRESS)).to.be.revertedWith("add-in-list-failed");
+        await expect(minter.addWhitelistedToken(DAI_ADDRESS, cDAI_ADDRESS, DAI_USD)).to.be.revertedWith(
+          "add-in-list-failed"
+        );
       });
     });
     context("Remove token address from whitelist", function () {
@@ -214,13 +223,37 @@ describe("VUSD Minter", async function () {
       });
 
       it("Should remove token from whitelist", async function () {
-        await minter.removeWhitelistedToken(USDT_ADDRESS);
-        expect(await addressList.length()).to.be.equal("2", "Address removed successfully");
-        expect(await minter.cTokens(USDT_ADDRESS)).to.be.eq(ZERO_ADDRESS, "CToken should be removed");
+        await minter.removeWhitelistedToken(USDC_ADDRESS);
+        expect(await addressList.length()).to.be.equal("1", "Address removed successfully");
+        expect(await minter.cTokens(USDC_ADDRESS)).to.be.eq(ZERO_ADDRESS, "CToken should be removed");
       });
 
       it("Should revert if token not in list", async function () {
         await expect(minter.removeWhitelistedToken(WETH_ADDRESS)).to.be.revertedWith("remove-from-list-failed");
+      });
+    });
+
+    context("Check minting is allowed or not", function () {
+      let fakeOracle;
+      before(async function () {
+        fakeOracle = await smock.fake("IAggregatorV3", {address: DAI_USD});
+        await fakeOracle.decimals.returns(8);
+      });
+      it("Should allow minting if price is in range", async function () {
+        await fakeOracle.latestRoundData.returns([1, 100700000, 1, 1, 1]);
+        expect(await minter.isMintingAllowed(DAI_ADDRESS), "Minting should be allowed").to.true;
+      });
+
+      it("Should revert if minting is not allowed due to price deviation", async function () {
+        // 1 wei high than price upper bound
+        await fakeOracle.latestRoundData.returns([1, 104000001, 1, 1, 1]);
+        expect(await minter.isMintingAllowed(DAI_ADDRESS), "Minting not allowed").to.false;
+      });
+
+      it("Should revert if minting is not allowed due to price deviation", async function () {
+        // 1 wei less than price lower bound
+        await fakeOracle.latestRoundData.returns([1, 95999999, 1, 1, 1]);
+        expect(await minter.isMintingAllowed(DAI_ADDRESS), "Minting not allowed").to.false;
       });
     });
   });
