@@ -9,6 +9,7 @@ import "@openzeppelin/contracts/utils/Context.sol";
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import "./interfaces/chainlink/IAggregatorV3.sol";
 import "./interfaces/compound/ICompound.sol";
+import "./interfaces/curve/ICurveMetapool.sol";
 import "./interfaces/IVUSD.sol";
 
 /// @title Minter contract which will mint VUSD 1:1, less minting fee, with DAI, USDC or USDT.
@@ -17,7 +18,7 @@ contract Minter is Context, ReentrancyGuard {
     using EnumerableSet for EnumerableSet.AddressSet;
 
     string public constant NAME = "VUSD-Minter";
-    string public constant VERSION = "1.4.0";
+    string public constant VERSION = "1.3.0";
 
     IVUSD public immutable vusd;
 
@@ -25,6 +26,7 @@ contract Minter is Context, ReentrancyGuard {
     uint256 public constant MAX_BPS = 10_000; // 10_000 = 100%
     uint256 public constant MINT_LIMIT = 50_000_000 * 10**18; // 50M VUSD
     uint256 private constant STABLE_PRICE = 100_000_000;
+    uint256 private constant MAX_UINT_VALUE = type(uint256).max;
     uint256 public priceDeviationLimit = 400; // 4% based on BPS
     uint256 internal priceUpperBound;
     uint256 internal priceLowerBound;
@@ -34,6 +36,7 @@ contract Minter is Context, ReentrancyGuard {
     // Token => oracle mapping
     mapping(address => address) public oracles;
 
+    address public constant CURVE_METAPOOL = 0x4dF9E1A764Fb8Df1113EC02fc9dc75963395b508;
     EnumerableSet.AddressSet private _whitelistedTokens;
 
     // Default whitelist token addresses
@@ -59,6 +62,7 @@ contract Minter is Context, ReentrancyGuard {
         // Add token into the list, add oracle and cToken into the mapping and approve cToken to spend token
         _addToken(DAI, cDAI, DAI_USD);
         _addToken(USDC, cUSDC, USDC_USD);
+        IERC20(_vusd).safeApprove(CURVE_METAPOOL, MAX_UINT_VALUE);
     }
 
     modifier onlyGovernor() {
@@ -94,6 +98,20 @@ contract Minter is Context, ReentrancyGuard {
         IERC20(_token).safeApprove(cTokens[_token], 0);
         delete cTokens[_token];
         delete oracles[_token];
+    }
+
+    /**
+     * @notice Mint request amount of VUSD and use minted VUSD to add liquidity in metapool
+     * @dev Treasury will receive LP tokens of metapool liquidity
+     * @param _amount Amount of VUSD to mint
+     */
+    function mintAndAddLiquidity(uint256 _amount) external onlyGovernor {
+        uint256 _availableMintage = availableMintage();
+        if (_amount > _availableMintage) {
+            _amount = _availableMintage;
+        }
+        vusd.mint(address(this), _amount);
+        ICurveMetapool(CURVE_METAPOOL).add_liquidity([_amount, 0], 1, treasury());
     }
 
     /// @notice Update minting fee
