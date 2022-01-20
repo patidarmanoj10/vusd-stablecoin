@@ -17,7 +17,7 @@ contract Treasury is Context, ReentrancyGuard {
     using EnumerableSet for EnumerableSet.AddressSet;
 
     string public constant NAME = "VUSD-Treasury";
-    string public constant VERSION = "1.4.0";
+    string public constant VERSION = "1.3.0";
 
     IVUSD public immutable vusd;
     address public redeemer;
