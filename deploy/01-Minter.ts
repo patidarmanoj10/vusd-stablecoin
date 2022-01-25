@@ -7,7 +7,7 @@ let version;
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const {deployments, getNamedAccounts} = hre;
-  const {deploy, execute} = deployments;
+  const {deploy} = deployments;
 
   const {deployer} = await getNamedAccounts();
   const vusdDeployment = await deployments.get(vusd);
@@ -20,12 +20,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   const minter = await hre.ethers.getContractAt(name, deployed.address);
 
-  //Update minter in VUSD
-  await execute(vusd, {from: deployer, log: true}, "updateMinter", minter.address);
   version = await minter.VERSION();
 };
 
 export default func;
 func.id = `${name}-${version}`;
 func.tags = [name];
-func.dependencies = [vusd];

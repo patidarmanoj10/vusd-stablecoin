@@ -10,7 +10,7 @@ import "hardhat-contract-sizer";
 import dotenv from "dotenv";
 dotenv.config();
 
-const gasPrice = 80000000000;
+const junk = "test test test test test test test test test test test junk";
 
 const config: HardhatUserConfig = {
   defaultNetwork: "hardhat",
@@ -29,7 +29,7 @@ const config: HardhatUserConfig = {
       url: process.env.NODE_URL,
       chainId: 1,
       gas: 6700000,
-      gasPrice,
+      accounts: {mnemonic: process.env.MNEMONIC || junk},
     },
   },
   paths: {

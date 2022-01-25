@@ -9,6 +9,7 @@
   "scripts": {
     "clean": "hardhat clean",
     "compile": "hardhat compile",
+    "hardhat": "hardhat",
     "build": "npm run clean && npm run compile",
     "coverage": "hardhat coverage",
     "deploy": "hardhat deploy",
