@@ -16,7 +16,7 @@ contract Redeemer is Context, ReentrancyGuard {
 
     IVUSD public immutable vusd;
 
-    uint256 public redeemFee; // Default no fee
+    uint256 public redeemFee = 30; // Default 0.3% fee
     uint256 public constant MAX_REDEEM_FEE = 10_000; // 10_000 = 100%
 
     event UpdatedRedeemFee(uint256 previousRedeemFee, uint256 newRedeemFee);

@@ -122,8 +122,9 @@ describe("VUSD redeemer", async function () {
       await vusd.connect(user3).approve(redeemer.address, amountToWithdraw);
       const DAI = await ethers.getContractAt("ERC20", token);
       expect(await DAI.balanceOf(user4.address)).to.be.eq(0, "User balance should be zero");
+      const expectedDAI = await redeemer["redeemable(address,uint256)"](DAI.address, amountToWithdraw);
       await redeemer.connect(user3)["redeem(address,uint256,address)"](token, amountToWithdraw, user4.address);
-      expect(await DAI.balanceOf(user4.address)).to.be.eq(amountToWithdraw, "Incorrect DAI balance");
+      expect(await DAI.balanceOf(user4.address)).to.be.eq(expectedDAI, "Incorrect DAI balance");
     });
 
     it("Should revert if tries to redeem more than total redeemable", async function () {
