@@ -19,3 +19,5 @@ deployments/localhost
 coverage
 coverage.json
 .coverage*
+
+out
