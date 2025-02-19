@@ -59,7 +59,7 @@ describe("VUSD Treasury", async function () {
     expect(vusd.address).to.be.properAddress;
 
     const minterFactory = (await ethers.getContractFactory("Minter", signers[0])) as Minter__factory;
-    minter = await minterFactory.deploy(vusd.address);
+    minter = await minterFactory.deploy(vusd.address, ethers.constants.MaxUint256);
     expect(minter.address).to.be.properAddress;
     await vusd.updateMinter(minter.address);
 

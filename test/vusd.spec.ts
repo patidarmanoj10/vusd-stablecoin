@@ -93,7 +93,7 @@ describe("VUSD", async function () {
 
     it("Should transfer VUSD to multiple recipients", async function () {
       const minterFactory = (await ethers.getContractFactory("Minter", signers[0])) as Minter__factory;
-      const minter: Minter = await minterFactory.deploy(vusd.address);
+      const minter: Minter = await minterFactory.deploy(vusd.address, ethers.constants.MaxUint256);
       expect(minter.address).to.be.properAddress;
       await vusd.updateMinter(minter.address);
 

@@ -6,6 +6,10 @@
   "directories": {
     "test": "test"
   },
+  "lint-staged": {
+    "*.ts": "eslint",
+    "./contracts/*.sol": "solhint"
+  },
   "scripts": {
     "clean": "hardhat clean",
     "compile": "hardhat compile",

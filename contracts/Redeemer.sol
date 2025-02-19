@@ -12,14 +12,16 @@ import "./interfaces/ITreasury.sol";
 /// @title VUSD Redeemer, User can redeem their VUSD with any supported tokens
 contract Redeemer is Context, ReentrancyGuard {
     string public constant NAME = "VUSD-Redeemer";
-    string public constant VERSION = "1.3.0";
+    string public constant VERSION = "1.4.0";
 
     IVUSD public immutable vusd;
 
     uint256 public redeemFee = 30; // Default 0.3% fee
     uint256 public constant MAX_REDEEM_FEE = 10_000; // 10_000 = 100%
+    uint256 public priceTolerance = 100; // Default 1% based on BPS
 
     event UpdatedRedeemFee(uint256 previousRedeemFee, uint256 newRedeemFee);
+    event UpdatedPriceTolerance(uint256 previousTolerance, uint256 newTolerance);
 
     constructor(address _vusd) {
         require(_vusd != address(0), "vusd-address-is-zero");
@@ -36,9 +38,19 @@ contract Redeemer is Context, ReentrancyGuard {
     /// @notice Update redeem fee
     function updateRedeemFee(uint256 _newRedeemFee) external onlyGovernor {
         require(_newRedeemFee <= MAX_REDEEM_FEE, "redeem-fee-limit-reached");
-        require(redeemFee != _newRedeemFee, "same-redeem-fee");
-        emit UpdatedRedeemFee(redeemFee, _newRedeemFee);
+        uint256 _previousRedeemFee = redeemFee;
+        require(_previousRedeemFee != _newRedeemFee, "same-redeem-fee");
         redeemFee = _newRedeemFee;
+        emit UpdatedRedeemFee(_previousRedeemFee, _newRedeemFee);
+    }
+
+    /// @notice Update price tolerance
+    function updatePriceTolerance(uint256 _newTolerance) external onlyGovernor {
+        require(_newTolerance <= MAX_REDEEM_FEE, "price-tolerance-is-invalid");
+        uint256 _previousTolerance = priceTolerance;
+        require(_previousTolerance != _newTolerance, "same-tolerance");
+        priceTolerance = _newTolerance;
+        emit UpdatedPriceTolerance(_previousTolerance, _newTolerance);
     }
 
     ///////////////////////////////////////////////////////////////////////////
@@ -102,11 +114,8 @@ contract Redeemer is Context, ReentrancyGuard {
         uint256 _vusdAmount,
         address _tokenReceiver
     ) internal {
-        // In case of redeemFee, We will burn vusdAmount from user and withdraw (vusdAmount - fee) from treasury.
         uint256 _redeemable = _calculateRedeemable(_token, _vusdAmount);
-        // Burn vusdAmount
         vusd.burnFrom(_msgSender(), _vusdAmount);
-        // Withdraw _redeemable
         ITreasury(treasury()).withdraw(_token, _redeemable, _tokenReceiver);
     }
 
@@ -117,10 +126,22 @@ contract Redeemer is Context, ReentrancyGuard {
      */
     function _calculateRedeemable(address _token, uint256 _vusdAmount) internal view returns (uint256) {
         IAggregatorV3 _oracle = IAggregatorV3(ITreasury(treasury()).oracles(_token));
+        uint8 _oracleDecimal = IAggregatorV3(_oracle).decimals();
+
+        // Token is expected to be stable coin only. Ideal price is 1 USD
+        uint256 _oneUSD = 10**_oracleDecimal;
+        uint256 _tolerance = (_oneUSD * priceTolerance) / MAX_REDEEM_FEE;
+        uint256 _priceUpperBound = _oneUSD + _tolerance;
+        uint256 _priceLowerBound = _oneUSD - _tolerance;
+
         (, int256 _price, , , ) = IAggregatorV3(_oracle).latestRoundData();
-        uint256 _redeemable = (_vusdAmount * uint256(_price)) / (10**IAggregatorV3(_oracle).decimals());
-        if (redeemFee != 0) {
-            _redeemable -= (_redeemable * redeemFee) / MAX_REDEEM_FEE;
+        uint256 _latestPrice = uint256(_price);
+        require(_latestPrice <= _priceUpperBound && _latestPrice >= _priceLowerBound, "price-tolerance-exceeded");
+
+        uint256 _redeemable = (_vusdAmount * _latestPrice) / _oneUSD;
+        uint256 _redeemFee = redeemFee;
+        if (_redeemFee != 0) {
+            _redeemable -= (_redeemable * _redeemFee) / MAX_REDEEM_FEE;
         }
         // convert redeemable to _token defined decimal
         return _redeemable / 10**(18 - IERC20Metadata(_token).decimals());
