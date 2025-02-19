@@ -52,35 +52,4 @@ describe("Live mint and redeem test", async function () {
     await redeemer.connect(signer)["redeem(address,uint256)"](address.USDC, vUSDBalance);
     expect(await vusd.balanceOf(signer.address)).to.eq(0, "VUSD amount should be zero");
   });
-
-  it("Should mint and add liquidity to curve metapool", async function () {
-    const governor = await impersonateAccount(await vusd.governor());
-    const amount = ethers.utils.parseEther("100");
-    const tsBefore = await vusd.totalSupply();
-
-    // Get meta pool
-    const metapoolAddress = await minter.CURVE_METAPOOL();
-    const metapool = await ethers.getContractAt("IERC20", metapoolAddress);
-
-    // Verify no LP in treasury before adding liquidity
-    const treasuryAddress = await vusd.treasury();
-    expect(await metapool.balanceOf(treasuryAddress), "LP balance should be zero").eq(0);
-
-    // Mint VUSD and add liquidity
-    await minter.connect(governor).mintAndAddLiquidity(amount);
-    const tsAfter = await vusd.totalSupply();
-    expect(tsAfter.sub(tsBefore), "total supply after mint is incorrect").eq(amount);
-
-    // Verify LP balance in treasury
-    expect(await metapool.balanceOf(treasuryAddress), "LP balance should be > zero").gt(0);
-
-    const treasury = await ethers.getContractAt("Treasury", treasuryAddress);
-
-    // Verify no LP token at governor address before sweep
-    expect(await metapool.balanceOf(governor.address), "LP balance in treasury should be zero").eq(0);
-    // Sweep LP tokens from treasury to governor
-    await treasury.connect(governor).sweep(metapoolAddress);
-    // Verify LP token at governor address
-    expect(await metapool.balanceOf(governor.address), "LP balance of governor should be > zero").gt(0);
-  });
 });

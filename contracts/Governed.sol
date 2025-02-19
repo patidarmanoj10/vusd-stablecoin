@@ -31,7 +31,7 @@ contract Governed is Context {
     /**
      * @dev Throws if called by any account other than the governor.
      */
-    modifier onlyGovernor {
+    modifier onlyGovernor() {
         require(governor == _msgSender(), "caller-is-not-the-governor");
         _;
     }
