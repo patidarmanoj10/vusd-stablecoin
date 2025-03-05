@@ -7,6 +7,7 @@ let version;
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const {deployments, getNamedAccounts} = hre;
+  const maxMintLimit = hre.ethers.utils.parseEther("500000000");
   const {deploy} = deployments;
 
   const {deployer} = await getNamedAccounts();
@@ -14,7 +15,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   const deployed = await deploy(name, {
     from: deployer,
-    args: [vusdDeployment.address],
+    args: [vusdDeployment.address, maxMintLimit],
     log: true,
   });
 
