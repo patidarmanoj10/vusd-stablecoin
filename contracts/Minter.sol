@@ -17,7 +17,7 @@ contract Minter is Context, ReentrancyGuard {
     using EnumerableSet for EnumerableSet.AddressSet;
 
     string public constant NAME = "VUSD-Minter";
-    string public constant VERSION = "1.4.0";
+    string public constant VERSION = "1.4.1";
 
     IVUSD public immutable vusd;
 
