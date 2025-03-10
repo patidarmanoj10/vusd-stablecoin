@@ -51,8 +51,11 @@ contract MinterTest is Test {
 
     function testMintFailWithPriceDeviation() public {
         minter.updatePriceTolerance(0); // 0% deviation limit
+        uint256 _amount = 10 ether;
+        deal(DAI, address(this), _amount);
+        IERC20(DAI).approve(address(minter), _amount);
         vm.expectRevert("oracle-price-exceed-tolerance");
-        minter.mint(DAI, 100);
+        minter.mint(DAI, _amount);
     }
 
     function testCalculateMintage() public view {
@@ -69,7 +72,7 @@ contract MinterTest is Test {
 
     function testMintVUSD() public {
         uint256 amount = 1000 ether;
-        deal(DAI, address(this), amount);
+        deal(DAI, address(this), 10 * amount);
         IERC20(DAI).approve(address(minter), amount);
         uint256 expectedVUSD = minter.calculateMintage(DAI, amount);
         minter.mint(DAI, amount);
@@ -114,6 +117,7 @@ contract MinterTest is Test {
 
         vm.startPrank(alice);
 
+        IERC20(DAI).approve(address(minter), amount);
         vm.expectRevert("mint-limit-reached");
         minter.mint(DAI, amount);
     }

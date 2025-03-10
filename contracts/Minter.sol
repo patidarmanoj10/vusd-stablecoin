@@ -17,7 +17,7 @@ contract Minter is Context, ReentrancyGuard {
     using EnumerableSet for EnumerableSet.AddressSet;
 
     string public constant NAME = "VUSD-Minter";
-    string public constant VERSION = "1.4.0";
+    string public constant VERSION = "1.4.1";
 
     IVUSD public immutable vusd;
 
@@ -53,6 +53,15 @@ contract Minter is Context, ReentrancyGuard {
     event UpdatedMintingFee(uint256 previousMintingFee, uint256 newMintingFee);
     event UpdatedPriceTolerance(uint256 previousPriceTolerance, uint256 newPriceTolerance);
     event MintingLimitUpdated(uint256 previousMintLimit, uint256 newMintLimit);
+    event Mint(
+        address indexed tokenIn,
+        uint256 amountIn,
+        uint256 amountInAfterTransferFee,
+        uint256 mintage,
+        address receiver
+    );
+    event WhitelistedTokenAdded(address indexed token, address cToken, address oracle);
+    event WhitelistedTokenRemoved(address indexed token);
 
     constructor(address _vusd, uint256 _maxMintLimit) {
         require(_vusd != address(0), "vusd-address-is-zero");
@@ -97,6 +106,7 @@ contract Minter is Context, ReentrancyGuard {
         IERC20(_token).safeApprove(cTokens[_token], 0);
         delete cTokens[_token];
         delete oracles[_token];
+        emit WhitelistedTokenRemoved(_token);
     }
 
     /**
@@ -163,6 +173,7 @@ contract Minter is Context, ReentrancyGuard {
      * @param _token Address of token which will be deposited for this mintage
      * @param _amountIn Amount of _token being sent to calculate VUSD mintage.
      * @return _mintage VUSD mintage based on given input
+     * @dev _amountIn is amount received after transfer fee if there is any.
      */
     function calculateMintage(address _token, uint256 _amountIn) external view returns (uint256 _mintage) {
         if (_whitelistedTokens.contains(_token)) {
@@ -226,6 +237,7 @@ contract Minter is Context, ReentrancyGuard {
         oracles[_token] = _oracle;
         cTokens[_token] = _cToken;
         IERC20(_token).safeApprove(_cToken, type(uint256).max);
+        emit WhitelistedTokenAdded(_token, _cToken, _oracle);
     }
 
     /**
@@ -240,12 +252,18 @@ contract Minter is Context, ReentrancyGuard {
         address _receiver
     ) internal returns (uint256 _mintage) {
         require(_whitelistedTokens.contains(_token), "token-is-not-supported");
-        _mintage = _calculateMintage(_token, _amountIn);
+        uint256 _balanceBefore = IERC20(_token).balanceOf(address(this));
         IERC20(_token).safeTransferFrom(_msgSender(), address(this), _amountIn);
+        uint256 _balanceAfter = IERC20(_token).balanceOf(address(this));
+
+        uint256 _actualAmountIn = _balanceAfter - _balanceBefore;
+        _mintage = _calculateMintage(_token, _actualAmountIn);
         address _cToken = cTokens[_token];
-        require(CToken(_cToken).mint(IERC20(_token).balanceOf(address(this))) == 0, "cToken-mint-failed");
+
+        require(CToken(_cToken).mint(_balanceAfter) == 0, "cToken-mint-failed");
         IERC20(_cToken).safeTransfer(treasury(), IERC20(_cToken).balanceOf(address(this)));
         vusd.mint(_receiver, _mintage);
+        emit Mint(_token, _amountIn, _actualAmountIn, _mintage, _receiver);
     }
 
     /**

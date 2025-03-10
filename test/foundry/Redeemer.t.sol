@@ -9,7 +9,7 @@ import "../../contracts/interfaces/chainlink/IAggregatorV3.sol";
 contract MockTreasury is ITreasury {
     mapping(address => address) private tokenOracles;
 
-    function isWhitelistedToken(address _token) external view override returns (bool) {
+    function isWhitelistedToken(address) external pure override returns (bool) {
         return true;
     }
 
@@ -17,7 +17,7 @@ contract MockTreasury is ITreasury {
         return tokenOracles[_token];
     }
 
-    function withdrawable(address _token) external view override returns (uint256) {
+    function withdrawable(address) external pure override returns (uint256) {
         return type(uint256).max;
     }
 
