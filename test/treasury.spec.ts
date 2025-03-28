@@ -164,7 +164,8 @@ describe("VUSD Treasury", async function () {
   });
 
   context("Claim COMP", function () {
-    it("Should claim comp from all cToken markets", async function () {
+    // CompoundV2 protocol has stopped distributing COMP to all markets.
+    it.skip("Should claim comp from all cToken markets", async function () {
       await mintVUSD(DAI_ADDRESS, signers[4], "100");
       await mineBlocks(1000);
       const cUSDC = await ethers.getContractAt("ERC20", cUSDC_ADDRESS);
@@ -173,7 +174,8 @@ describe("VUSD Treasury", async function () {
       expect(await cUSDC.balanceOf(treasury.address)).to.be.gt(0, "cUSDC balance should be > 0");
     });
 
-    it("Should claim comp via keeper call", async function () {
+    // CompoundV2 protocol has stopped distributing COMP to all markets.
+    it.skip("Should claim comp via keeper call", async function () {
       await mintVUSD(USDC_ADDRESS, signers[4], "100");
       await mineBlocks(1000);
       const cDAI = await ethers.getContractAt("ERC20", cDAI_ADDRESS);
