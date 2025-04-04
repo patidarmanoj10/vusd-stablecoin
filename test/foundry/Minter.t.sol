@@ -41,6 +41,17 @@ contract MinterTest is Test {
         assertEq(minter.mintingFee(), newFee, "Minting fee should be updated");
     }
 
+    function testStalePeriod() public {
+        uint256 newStalePeriod = 3600;
+        minter.updateStalePeriod(newStalePeriod);
+        assertEq(minter.stalePeriod(), newStalePeriod, "Stale period should be updated");
+
+        // Test for stale price
+        vm.warp(block.timestamp + newStalePeriod + 1);
+        vm.expectRevert("oracle-price-is-stale");
+        minter.calculateMintage(DAI, 1000 ether);
+    }
+
     function testUpdateMaxMintAmount() public {
         uint256 newMintLimit = 1000 ether;
         minter.updateMaxMintAmount(newMintLimit);
@@ -59,7 +70,7 @@ contract MinterTest is Test {
         deal(DAI, address(this), _amount);
         IERC20(DAI).approve(address(minter), _amount);
         vm.expectRevert("oracle-price-exceed-tolerance");
-        minter.mint(DAI, _amount);
+        minter.mint(DAI, _amount, 1, address(this));
     }
 
     function testCalculateMintage() public {
@@ -79,9 +90,18 @@ contract MinterTest is Test {
         deal(DAI, address(this), 10 * amount);
         IERC20(DAI).approve(address(minter), amount);
         uint256 expectedVUSD = minter.calculateMintage(DAI, amount);
-        minter.mint(DAI, amount);
+        minter.mint(DAI, amount, 1, address(this));
         uint256 vusdBalance = vusd.balanceOf(address(this));
         assertEq(vusdBalance, expectedVUSD, "Incorrect VUSD minted");
+    }
+
+    function testSlippage() public {
+        uint256 amount = 1000 ether;
+        deal(DAI, address(this), 10 * amount);
+        IERC20(DAI).approve(address(minter), amount);
+        // throw error if slippage is not handled
+        vm.expectRevert("mint-amount-is-less-than-minimum");
+        minter.mint(DAI, amount, amount + 1, address(this));
     }
 
     function testMintVUSDWithFee() public {
@@ -90,7 +110,7 @@ contract MinterTest is Test {
         deal(DAI, address(this), amount);
         IERC20(DAI).approve(address(minter), amount);
         uint256 expectedVUSD = minter.calculateMintage(DAI, amount);
-        minter.mint(DAI, amount);
+        minter.mint(DAI, amount, 1, address(this));
         uint256 vusdBalance = vusd.balanceOf(address(this));
         assertEq(vusdBalance, expectedVUSD, "Incorrect VUSD minted");
     }
@@ -123,7 +143,7 @@ contract MinterTest is Test {
 
         IERC20(DAI).approve(address(minter), amount);
         vm.expectRevert("mint-limit-reached");
-        minter.mint(DAI, amount);
+        minter.mint(DAI, amount, 1, address(this));
     }
 
     function testCalculateMintageWithPriceVariations() public {

@@ -39,7 +39,7 @@ contract RedeemerTest is Test {
     function testRedeemWithPriceToleranceExceeded() public {
         redeemer.updatePriceTolerance(0);
         vm.expectRevert("price-tolerance-exceeded");
-        redeemer.redeem(DAI, 100, address(0x123));
+        redeemer.redeem(DAI, 100, 1, address(0x123));
     }
 
     function testRedeemWithinPriceTolerance() public {
@@ -49,7 +49,7 @@ contract RedeemerTest is Test {
 
         vm.startPrank(alice);
         vusd.approve(address(redeemer), amount);
-        redeemer.redeem(DAI, amount);
+        redeemer.redeem(DAI, amount, 1, alice);
         vm.stopPrank();
 
         // assert that vusd balance decrease
@@ -66,10 +66,32 @@ contract RedeemerTest is Test {
         assertEq(redeemableAmount, expectedRedeemable, "Redeemable amount should be correct");
     }
 
+    function testSlippage() public {
+        uint256 amount = 100 ether;
+        uint256 redeemableAmount = redeemer.redeemable(DAI, amount);
+
+        vm.startPrank(alice);
+        vusd.approve(address(redeemer), amount);
+        vm.expectRevert("redeemable-amount-is-less-than-minimum");
+        redeemer.redeem(DAI, amount, redeemableAmount + 1, alice);
+        vm.stopPrank();
+    }
+
     function testUpdateRedeemFee() public {
         uint256 newFee = 50;
         redeemer.updateRedeemFee(newFee);
         assertEq(redeemer.redeemFee(), newFee, "Redeem fee should be updated");
+    }
+
+    function testStalePeriod() public {
+        uint256 newStalePeriod = 3600;
+        redeemer.updateStalePeriod(newStalePeriod);
+        assertEq(redeemer.stalePeriod(), newStalePeriod, "Stale period should be updated");
+
+        // Test for stale price
+        vm.warp(block.timestamp + newStalePeriod + 1);
+        vm.expectRevert("oracle-price-is-stale");
+        redeemer.redeemable(DAI, 100);
     }
 
     function testRedeemWithUpdatedFee() public {
@@ -82,7 +104,7 @@ contract RedeemerTest is Test {
 
         vm.startPrank(alice);
         vusd.approve(address(redeemer), amount);
-        redeemer.redeem(DAI, amount);
+        redeemer.redeem(DAI, amount, 1, alice);
         vm.stopPrank();
 
         uint256 daiBalance = IERC20(DAI).balanceOf(alice);
