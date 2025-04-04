@@ -137,8 +137,7 @@ contract Redeemer is Context, ReentrancyGuard {
         (, int256 _price, , , ) = IAggregatorV3(_oracle).latestRoundData();
         uint256 _latestPrice = uint256(_price);
         require(_latestPrice <= _priceUpperBound && _latestPrice >= _priceLowerBound, "price-tolerance-exceeded");
-
-        uint256 _redeemable = (_vusdAmount * _latestPrice) / _oneUSD;
+        uint256 _redeemable = _latestPrice < _oneUSD ? _vusdAmount : (_vusdAmount * _oneUSD) / _latestPrice;
         uint256 _redeemFee = redeemFee;
         if (_redeemFee != 0) {
             _redeemable -= (_redeemable * _redeemFee) / MAX_REDEEM_FEE;

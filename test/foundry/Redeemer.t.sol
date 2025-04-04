@@ -5,40 +5,8 @@ import "../../lib/forge-std/src/Test.sol";
 import "../../contracts/Redeemer.sol";
 import "../../contracts/VUSD.sol";
 import "../../contracts/interfaces/chainlink/IAggregatorV3.sol";
-
-contract MockTreasury is ITreasury {
-    mapping(address => address) private tokenOracles;
-
-    function isWhitelistedToken(address) external pure override returns (bool) {
-        return true;
-    }
-
-    function oracles(address _token) external view override returns (address) {
-        return tokenOracles[_token];
-    }
-
-    function withdrawable(address) external pure override returns (uint256) {
-        return type(uint256).max;
-    }
-
-    function setWhitelistedToken(address _token, bool _whitelisted) external {}
-
-    function setOracle(address _token, address _oracle) external {
-        tokenOracles[_token] = _oracle;
-    }
-
-    function withdraw(address _token, uint256 _amount, address _receiver) external override {
-        IERC20(_token).transfer(_receiver, _amount);
-    }
-
-    function withdraw(address _token, uint256 _amount) external override {
-        IERC20(_token).transfer(msg.sender, _amount);
-    }
-
-    function vusd() external view override returns (address) {}
-
-    function whitelistedTokens() external view override returns (address[] memory) {}
-}
+import "./mock/MockChainlinkOracle.sol";
+import "./mock/MockTreasury.sol";
 
 contract RedeemerTest is Test {
     VUSD vusd;
@@ -47,7 +15,7 @@ contract RedeemerTest is Test {
     address alice = address(0x111);
     address constant DAI = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
     address constant cDAI = 0x5d3a536E4D6DbD6114cc1Ead35777bAB948E3643;
-    address constant DAI_USD = 0xAed0c38402a5d19df6E4c03F4E2DceD6e29c1ee9;
+    MockChainlinkOracle mockOracle;
 
     function setUp() public {
         vm.createSelectFork(vm.envString("NODE_URL"), vm.envUint("FORK_BLOCK_NUMBER"));
@@ -56,10 +24,10 @@ contract RedeemerTest is Test {
         vusd.updateMinter(address(this));
         vusd.mint(alice, 10000 ether);
         redeemer = new Redeemer(address(vusd));
-
+        mockOracle = new MockChainlinkOracle(1.01e8);
         console.log("VUSD balance: %s", vusd.balanceOf(alice));
         deal(DAI, address(treasury), 1000 ether);
-        treasury.setOracle(DAI, DAI_USD);
+        treasury.setOracle(DAI, address(mockOracle));
     }
 
     function testUpdatePriceTolerance() public {
@@ -90,9 +58,9 @@ contract RedeemerTest is Test {
     }
 
     function testRedeemable() public view {
-        (, int256 _price, , , ) = IAggregatorV3(DAI_USD).latestRoundData();
+        (, int256 _price,,,) = mockOracle.latestRoundData();
         uint256 vusdAmount = 100 ether;
-        uint256 redeemableBeforeFee = (vusdAmount * uint256(_price)) / 1e8;
+        uint256 redeemableBeforeFee = (vusdAmount * 1e8) / uint256(_price);
         uint256 expectedRedeemable = redeemableBeforeFee - ((redeemableBeforeFee * redeemer.redeemFee()) / 10000);
         uint256 redeemableAmount = redeemer.redeemable(DAI, vusdAmount);
         assertEq(redeemableAmount, expectedRedeemable, "Redeemable amount should be correct");
@@ -119,5 +87,22 @@ contract RedeemerTest is Test {
 
         uint256 daiBalance = IERC20(DAI).balanceOf(alice);
         assertEq(daiBalance, expectedRedeemable, "Recipient should receive redeemed VUSD with updated fee");
+    }
+
+    function testCalculateRedeemableWithPriceVariations() public {
+        uint256 amountIn = 1000 * 1e18; // 1000 tokens
+        MockChainlinkOracle(mockOracle).updatePrice(0.999e8);
+        redeemer.updateRedeemFee(0);
+        uint256 redeemable = redeemer.redeemable(DAI, amountIn);
+        // When price > 1 USD, mintage should equal amountIn
+        assertEq(redeemable, amountIn, "Mintage should equal amountIn when price > 1 USD");
+
+        int256 price = 1.001 * 1e8;
+        MockChainlinkOracle(mockOracle).updatePrice(price);
+
+        redeemable = redeemer.redeemable(DAI, amountIn);
+        require(price >= 0, "Price must be non-negative");
+        uint256 expectedRedeemable = (amountIn * 1e8) / uint256(price);
+        assertEq(redeemable, expectedRedeemable, "Mintage should be scaled by price when price < 1 USD");
     }
 }

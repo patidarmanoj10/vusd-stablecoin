@@ -284,9 +284,9 @@ contract Minter is Context, ReentrancyGuard {
         uint256 _priceLowerBound = _oneUSD - _priceTolerance;
 
         require(_latestPrice <= _priceUpperBound && _latestPrice >= _priceLowerBound, "oracle-price-exceed-tolerance");
+        uint256 _actualAmountIn = mintingFee > 0 ? (_amountIn * (MAX_BPS - mintingFee)) / MAX_BPS : _amountIn;
+        _mintage = _latestPrice > _oneUSD ? _actualAmountIn : (_actualAmountIn * _latestPrice) / _oneUSD;
 
-        uint256 _actualAmountIn = (_amountIn * (MAX_BPS - mintingFee)) / MAX_BPS;
-        _mintage = (_actualAmountIn * _latestPrice) / _oneUSD;
         _mintage = _mintage * 10**(18 - IERC20Metadata(_token).decimals());
         uint256 _availableMintage = availableMintage();
         require(_availableMintage >= _mintage, "mint-limit-reached");
