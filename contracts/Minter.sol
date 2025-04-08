@@ -20,6 +20,7 @@ contract Minter is Context, ReentrancyGuard {
     string public constant VERSION = "1.4.2";
 
     IVUSD public immutable vusd;
+    uint8 public immutable vusdDecimals;
 
     uint256 public mintingFee; // Default no fee
     uint256 public maxMintLimit; // Maximum VUSD can be minted
@@ -69,6 +70,7 @@ contract Minter is Context, ReentrancyGuard {
         require(_vusd != address(0), "vusd-address-is-zero");
         vusd = IVUSD(_vusd);
         maxMintLimit = _maxMintLimit;
+        vusdDecimals = IERC20Metadata(_vusd).decimals();
         // Add token into the list, add oracle and cToken into the mapping and approve cToken to spend token
         _addToken(DAI, cDAI, DAI_USD);
         _addToken(USDC, cUSDC, USDC_USD);
@@ -278,9 +280,9 @@ contract Minter is Context, ReentrancyGuard {
 
         require(_latestPrice <= _priceUpperBound && _latestPrice >= _priceLowerBound, "oracle-price-exceed-tolerance");
         uint256 _actualAmountIn = mintingFee > 0 ? (_amountIn * (MAX_BPS - mintingFee)) / MAX_BPS : _amountIn;
-        _mintage = _latestPrice > _oneUSD ? _actualAmountIn : (_actualAmountIn * _latestPrice) / _oneUSD;
+        _mintage = _latestPrice >= _oneUSD ? _actualAmountIn : (_actualAmountIn * _latestPrice) / _oneUSD;
 
-        _mintage = _mintage * 10**(18 - IERC20Metadata(_token).decimals());
+        _mintage = _mintage * 10**(vusdDecimals - IERC20Metadata(_token).decimals());
         uint256 _availableMintage = availableMintage();
         require(_availableMintage >= _mintage, "mint-limit-reached");
     }

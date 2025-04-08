@@ -15,6 +15,7 @@ contract Redeemer is Context, ReentrancyGuard {
     string public constant VERSION = "1.4.2";
 
     IVUSD public immutable vusd;
+    uint8 public immutable vusdDecimals;
 
     uint256 public redeemFee = 30; // Default 0.3% fee
     uint256 public constant MAX_REDEEM_FEE = 10_000; // 10_000 = 100%
@@ -28,6 +29,7 @@ contract Redeemer is Context, ReentrancyGuard {
     constructor(address _vusd) {
         require(_vusd != address(0), "vusd-address-is-zero");
         vusd = IVUSD(_vusd);
+        vusdDecimals = IERC20Metadata(_vusd).decimals();
     }
 
     modifier onlyGovernor() {
@@ -143,12 +145,12 @@ contract Redeemer is Context, ReentrancyGuard {
         uint256 _priceLowerBound = _oneUSD - _tolerance;
 
         require(_latestPrice <= _priceUpperBound && _latestPrice >= _priceLowerBound, "price-tolerance-exceeded");
-        uint256 _redeemable = _latestPrice < _oneUSD ? _vusdAmount : (_vusdAmount * _oneUSD) / _latestPrice;
+        uint256 _redeemable = _latestPrice <= _oneUSD ? _vusdAmount : (_vusdAmount * _oneUSD) / _latestPrice;
         uint256 _redeemFee = redeemFee;
         if (_redeemFee != 0) {
             _redeemable -= (_redeemable * _redeemFee) / MAX_REDEEM_FEE;
         }
         // convert redeemable to _token defined decimal
-        return _redeemable / 10**(18 - IERC20Metadata(_token).decimals());
+        return _redeemable / 10**(vusdDecimals - IERC20Metadata(_token).decimals());
     }
 }
