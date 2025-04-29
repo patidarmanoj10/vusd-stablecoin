@@ -20,11 +20,12 @@ contract Redeemer is Context, ReentrancyGuard {
     uint256 public redeemFee = 30; // Default 0.3% fee
     uint256 public constant MAX_REDEEM_FEE = 10_000; // 10_000 = 100%
     uint256 public priceTolerance = 100; // Default 1% based on BPS
-    uint256 public stalePeriod = 1 days;
+    // Oracle => stalePeriod mapping
+    mapping(address => uint256) public stalePeriod;
 
     event UpdatedRedeemFee(uint256 previousRedeemFee, uint256 newRedeemFee);
     event UpdatedPriceTolerance(uint256 previousTolerance, uint256 newTolerance);
-    event UpdatedStalePeriod(uint256 previousStalePeriod, uint256 newStalePeriod);
+    event UpdatedStalePeriod(address indexed oracle, uint256 previousStalePeriod, uint256 newStalePeriod);
 
     constructor(address _vusd) {
         require(_vusd != address(0), "vusd-address-is-zero");
@@ -58,12 +59,12 @@ contract Redeemer is Context, ReentrancyGuard {
     }
 
     /// @notice Update stale period
-    function updateStalePeriod(uint256 _newStalePeriod) external onlyGovernor {
+    function updateStalePeriod(address _oracle, uint256 _newStalePeriod) external onlyGovernor {
         require(_newStalePeriod > 0, "stale-period-is-invalid");
-        uint256 _currentStalePeriod = stalePeriod;
+        uint256 _currentStalePeriod = stalePeriod[_oracle];
         require(_currentStalePeriod != _newStalePeriod, "same-stale-period");
-        emit UpdatedStalePeriod(_currentStalePeriod, _newStalePeriod);
-        stalePeriod = _newStalePeriod;
+        emit UpdatedStalePeriod(_oracle, _currentStalePeriod, _newStalePeriod);
+        stalePeriod[_oracle] = _newStalePeriod;
     }
 
     ///////////////////////////////////////////////////////////////////////////
@@ -134,7 +135,7 @@ contract Redeemer is Context, ReentrancyGuard {
     function _calculateRedeemable(address _token, uint256 _vusdAmount) internal view returns (uint256) {
         IAggregatorV3 _oracle = IAggregatorV3(ITreasury(treasury()).oracles(_token));
         (, int256 _price, , uint256 _updatedAt, ) = IAggregatorV3(_oracle).latestRoundData();
-        require(block.timestamp - _updatedAt < stalePeriod, "oracle-price-is-stale");
+        require(block.timestamp - _updatedAt < stalePeriod[address(_oracle)], "oracle-price-is-stale");
         uint256 _latestPrice = uint256(_price);
         uint8 _oracleDecimal = IAggregatorV3(_oracle).decimals();
 

@@ -24,14 +24,14 @@ contract MinterTest is Test {
         mockOracle = new MockChainlinkOracle(0.999e8);
         vusd.updateMinter(address(minter));
         minter.removeWhitelistedToken(DAI);
-        minter.addWhitelistedToken(DAI, cDAI, address(mockOracle));
+        minter.addWhitelistedToken(DAI, cDAI, address(mockOracle), 6 hours);
     }
 
     function testAddAndRemoveWhitelistedToken() public {
         minter.removeWhitelistedToken(DAI);
         assertFalse(minter.isWhitelistedToken(DAI), "Token should not be whitelisted");
 
-        minter.addWhitelistedToken(DAI, cDAI, address(mockOracle));
+        minter.addWhitelistedToken(DAI, cDAI, address(mockOracle), 6 hours);
         assertTrue(minter.isWhitelistedToken(DAI), "Token should be whitelisted");
     }
 
@@ -43,8 +43,8 @@ contract MinterTest is Test {
 
     function testStalePeriod() public {
         uint256 newStalePeriod = 3600;
-        minter.updateStalePeriod(newStalePeriod);
-        assertEq(minter.stalePeriod(), newStalePeriod, "Stale period should be updated");
+        minter.updateStalePeriod(address(mockOracle), newStalePeriod);
+        assertEq(minter.stalePeriod(address(mockOracle)), newStalePeriod, "Stale period should be updated");
 
         // Test for stale price
         vm.warp(block.timestamp + newStalePeriod + 1);
