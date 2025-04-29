@@ -27,12 +27,14 @@ contract Minter is Context, ReentrancyGuard {
 
     uint256 public constant MAX_BPS = 10_000; // 10_000 = 100%
     uint256 public priceTolerance = 100; // 1% based on BPS
-    uint256 public stalePeriod = 1 days; // 1 day
 
     // Token => cToken mapping
     mapping(address => address) public cTokens;
     // Token => oracle mapping
     mapping(address => address) public oracles;
+
+    // Oracle => stalePeriod mapping
+    mapping(address => uint256) public stalePeriod;
 
     EnumerableSet.AddressSet private _whitelistedTokens;
 
@@ -54,7 +56,7 @@ contract Minter is Context, ReentrancyGuard {
 
     event UpdatedMintingFee(uint256 previousMintingFee, uint256 newMintingFee);
     event UpdatedPriceTolerance(uint256 previousPriceTolerance, uint256 newPriceTolerance);
-    event UpdatedStalePeriod(uint256 previousStalePeriod, uint256 newStalePeriod);
+    event UpdatedStalePeriod(address indexed oracle, uint256 previousStalePeriod, uint256 newStalePeriod);
     event MintingLimitUpdated(uint256 previousMintLimit, uint256 newMintLimit);
     event Mint(
         address indexed tokenIn,
@@ -72,9 +74,9 @@ contract Minter is Context, ReentrancyGuard {
         maxMintLimit = _maxMintLimit;
         vusdDecimals = IERC20Metadata(_vusd).decimals();
         // Add token into the list, add oracle and cToken into the mapping and approve cToken to spend token
-        _addToken(DAI, cDAI, DAI_USD);
-        _addToken(USDC, cUSDC, USDC_USD);
-        _addToken(USDT, cUSDT, USDT_USD);
+        _addToken(DAI, cDAI, DAI_USD, 6 hours);
+        _addToken(USDC, cUSDC, USDC_USD, 24 hours);
+        _addToken(USDT, cUSDT, USDT_USD, 24 hours);
     }
 
     modifier onlyGovernor() {
@@ -93,12 +95,14 @@ contract Minter is Context, ReentrancyGuard {
     function addWhitelistedToken(
         address _token,
         address _cToken,
-        address _oracle
+        address _oracle,
+        uint256 _stalePeriod
     ) external onlyGovernor {
         require(_token != address(0), "token-address-is-zero");
         require(_cToken != address(0), "cToken-address-is-zero");
         require(_oracle != address(0), "oracle-address-is-zero");
-        _addToken(_token, _cToken, _oracle);
+        require(_stalePeriod > 0, "invalid-stale-period");
+        _addToken(_token, _cToken, _oracle, _stalePeriod);
     }
 
     /**
@@ -108,6 +112,7 @@ contract Minter is Context, ReentrancyGuard {
     function removeWhitelistedToken(address _token) external onlyGovernor {
         require(_whitelistedTokens.remove(_token), "remove-from-list-failed");
         IERC20(_token).safeApprove(cTokens[_token], 0);
+        delete stalePeriod[oracles[_token]];
         delete cTokens[_token];
         delete oracles[_token];
         emit WhitelistedTokenRemoved(_token);
@@ -148,12 +153,12 @@ contract Minter is Context, ReentrancyGuard {
     }
 
     /// @notice Update stale period
-    function updateStalePeriod(uint256 _newStalePeriod) external onlyGovernor {
+    function updateStalePeriod(address _oracle, uint256 _newStalePeriod) external onlyGovernor {
         require(_newStalePeriod > 0, "stale-period-is-invalid");
-        uint256 _currentStalePeriod = stalePeriod;
+        uint256 _currentStalePeriod = stalePeriod[_oracle];
         require(_currentStalePeriod != _newStalePeriod, "same-stale-period");
-        emit UpdatedStalePeriod(_currentStalePeriod, _newStalePeriod);
-        stalePeriod = _newStalePeriod;
+        emit UpdatedStalePeriod(_oracle, _currentStalePeriod, _newStalePeriod);
+        stalePeriod[_oracle] = _newStalePeriod;
     }
 
     ///////////////////////////////////////////////////////////////////////////
@@ -223,11 +228,13 @@ contract Minter is Context, ReentrancyGuard {
     function _addToken(
         address _token,
         address _cToken,
-        address _oracle
+        address _oracle,
+        uint256 _stalePeriod
     ) internal {
         require(_whitelistedTokens.add(_token), "add-in-list-failed");
         oracles[_token] = _oracle;
         cTokens[_token] = _cToken;
+        stalePeriod[_oracle] = _stalePeriod;
         IERC20(_token).safeApprove(_cToken, type(uint256).max);
         emit WhitelistedTokenAdded(_token, _cToken, _oracle);
     }
@@ -269,7 +276,7 @@ contract Minter is Context, ReentrancyGuard {
         IAggregatorV3 _oracle = IAggregatorV3(oracles[_token]);
         uint8 _oracleDecimal = IAggregatorV3(_oracle).decimals();
         (, int256 _price, , uint256 _updatedAt, ) = IAggregatorV3(_oracle).latestRoundData();
-        require(block.timestamp - _updatedAt < stalePeriod, "oracle-price-is-stale");
+        require(block.timestamp - _updatedAt < stalePeriod[address(_oracle)], "oracle-price-is-stale");
         uint256 _latestPrice = uint256(_price);
 
         // Token is expected to be stable coin only. Ideal price is 1 USD

@@ -28,6 +28,7 @@ contract RedeemerTest is Test {
         console.log("VUSD balance: %s", vusd.balanceOf(alice));
         deal(DAI, address(treasury), 1000 ether);
         treasury.setOracle(DAI, address(mockOracle));
+        redeemer.updateStalePeriod(address(mockOracle), 6 hours);
     }
 
     function testUpdatePriceTolerance() public {
@@ -85,8 +86,8 @@ contract RedeemerTest is Test {
 
     function testStalePeriod() public {
         uint256 newStalePeriod = 3600;
-        redeemer.updateStalePeriod(newStalePeriod);
-        assertEq(redeemer.stalePeriod(), newStalePeriod, "Stale period should be updated");
+        redeemer.updateStalePeriod(address(mockOracle), newStalePeriod);
+        assertEq(redeemer.stalePeriod(address(mockOracle)), newStalePeriod, "Stale period should be updated");
 
         // Test for stale price
         vm.warp(block.timestamp + newStalePeriod + 1);
