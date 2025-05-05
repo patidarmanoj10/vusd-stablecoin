@@ -74,7 +74,7 @@ contract Minter is Context, ReentrancyGuard {
         maxMintLimit = _maxMintLimit;
         vusdDecimals = IERC20Metadata(_vusd).decimals();
         // Add token into the list, add oracle and cToken into the mapping and approve cToken to spend token
-        _addToken(DAI, cDAI, DAI_USD, 6 hours);
+        _addToken(DAI, cDAI, DAI_USD, 1 hours);
         _addToken(USDC, cUSDC, USDC_USD, 24 hours);
         _addToken(USDT, cUSDT, USDT_USD, 24 hours);
     }
@@ -154,8 +154,9 @@ contract Minter is Context, ReentrancyGuard {
 
     /// @notice Update stale period
     function updateStalePeriod(address _oracle, uint256 _newStalePeriod) external onlyGovernor {
-        require(_newStalePeriod > 0, "stale-period-is-invalid");
+        require(_newStalePeriod != 0, "stale-period-is-invalid");
         uint256 _currentStalePeriod = stalePeriod[_oracle];
+        require(_currentStalePeriod != 0, "invalid-oracle");
         require(_currentStalePeriod != _newStalePeriod, "same-stale-period");
         emit UpdatedStalePeriod(_oracle, _currentStalePeriod, _newStalePeriod);
         stalePeriod[_oracle] = _newStalePeriod;
