@@ -23,12 +23,16 @@ contract RedeemerTest is Test {
         vusd = new VUSD(address(treasury));
         vusd.updateMinter(address(this));
         vusd.mint(alice, 10000 ether);
-        redeemer = new Redeemer(address(vusd));
         mockOracle = new MockChainlinkOracle(1.01e8);
         console.log("VUSD balance: %s", vusd.balanceOf(alice));
         deal(DAI, address(treasury), 1000 ether);
         treasury.setOracle(DAI, address(mockOracle));
-        redeemer.updateStalePeriod(address(mockOracle), 6 hours);
+        redeemer = new Redeemer(address(vusd));
+    }
+
+    function testDefaultStalePeriods() public view {
+        // default is set in constructor
+        assertEq(redeemer.stalePeriod(address(mockOracle)), 1 hours, "Default stale period should be 1 hour");
     }
 
     function testUpdatePriceTolerance() public {
@@ -59,7 +63,7 @@ contract RedeemerTest is Test {
     }
 
     function testRedeemable() public view {
-        (, int256 _price,,,) = mockOracle.latestRoundData();
+        (, int256 _price, , , ) = mockOracle.latestRoundData();
         uint256 vusdAmount = 100 ether;
         uint256 redeemableBeforeFee = (vusdAmount * 1e8) / uint256(_price);
         uint256 expectedRedeemable = redeemableBeforeFee - ((redeemableBeforeFee * redeemer.redeemFee()) / 10000);
@@ -85,7 +89,7 @@ contract RedeemerTest is Test {
     }
 
     function testStalePeriod() public {
-        uint256 newStalePeriod = 3600;
+        uint256 newStalePeriod = 2 hours;
         redeemer.updateStalePeriod(address(mockOracle), newStalePeriod);
         assertEq(redeemer.stalePeriod(address(mockOracle)), newStalePeriod, "Stale period should be updated");
 
