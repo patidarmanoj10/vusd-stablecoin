@@ -4,16 +4,17 @@ pragma solidity ^0.8.3;
 import "../../lib/forge-std/src/Test.sol";
 import "../../contracts/Minter.sol";
 import "../../contracts/VUSD.sol";
-import "../../contracts/interfaces/chainlink/IAggregatorV3.sol";
 import "./mock/MockChainlinkOracle.sol";
 
 contract MinterTest is Test {
+    using SafeERC20 for IERC20;
+
     VUSD vusd;
     Minter minter;
     address governor;
     address alice = address(0x111);
-    address constant DAI = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
-    address constant cDAI = 0x5d3a536E4D6DbD6114cc1Ead35777bAB948E3643;
+    address constant token = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48; // USDC
+    address constant cToken = 0x39AA39c021dfbaE8faC545936693aC917d5E7563; // cUSDC
     MockChainlinkOracle mockOracle;
 
     function setUp() public {
@@ -23,16 +24,25 @@ contract MinterTest is Test {
         minter = new Minter(address(vusd), type(uint256).max);
         mockOracle = new MockChainlinkOracle(0.999e8);
         vusd.updateMinter(address(minter));
-        minter.removeWhitelistedToken(DAI);
-        minter.addWhitelistedToken(DAI, cDAI, address(mockOracle), 6 hours);
+        minter.removeWhitelistedToken(token);
+        minter.addWhitelistedToken(token, cToken, address(mockOracle), 6 hours);
+    }
+
+    function parseToTokenAmount(uint256 amount) internal view returns (uint256) {
+        return amount * 10 ** IERC20Metadata(token).decimals();
+    }
+
+    function parseTokenAmountToVusdAmount(uint256 tokenAmount) internal view returns (uint256) {
+        return ((tokenAmount * 10 ** IERC20Metadata(address(vusd)).decimals()) /
+            (10 ** IERC20Metadata(token).decimals()));
     }
 
     function testAddAndRemoveWhitelistedToken() public {
-        minter.removeWhitelistedToken(DAI);
-        assertFalse(minter.isWhitelistedToken(DAI), "Token should not be whitelisted");
+        minter.removeWhitelistedToken(token);
+        assertFalse(minter.isWhitelistedToken(token), "Token should not be whitelisted");
 
-        minter.addWhitelistedToken(DAI, cDAI, address(mockOracle), 6 hours);
-        assertTrue(minter.isWhitelistedToken(DAI), "Token should be whitelisted");
+        minter.addWhitelistedToken(token, cToken, address(mockOracle), 6 hours);
+        assertTrue(minter.isWhitelistedToken(token), "Token should be whitelisted");
     }
 
     function testUpdateMintingFee() public {
@@ -48,12 +58,13 @@ contract MinterTest is Test {
 
         // Test for stale price
         vm.warp(block.timestamp + newStalePeriod + 1);
+        uint256 amount = parseToTokenAmount(1000);
         vm.expectRevert("oracle-price-is-stale");
-        minter.calculateMintage(DAI, 1000 ether);
+        minter.calculateMintage(token, amount);
     }
 
     function testUpdateMaxMintAmount() public {
-        uint256 newMintLimit = 1000 ether;
+        uint256 newMintLimit = 1000 ether; // amount in VUSD decimal
         minter.updateMaxMintAmount(newMintLimit);
         assertEq(minter.maxMintLimit(), newMintLimit, "Max mint limit should be updated");
     }
@@ -66,57 +77,59 @@ contract MinterTest is Test {
 
     function testMintFailWithPriceDeviation() public {
         minter.updatePriceTolerance(0); // 0% deviation limit
-        uint256 _amount = 10 ether;
-        deal(DAI, address(this), _amount);
-        IERC20(DAI).approve(address(minter), _amount);
+        uint256 _amount = parseToTokenAmount(10);
+        deal(token, address(this), _amount);
+        IERC20(token).safeApprove(address(minter), _amount);
         vm.expectRevert("oracle-price-exceed-tolerance");
-        minter.mint(DAI, _amount, 1, address(this));
+        minter.mint(token, _amount, 1, address(this));
     }
 
     function testCalculateMintage() public {
-        uint256 amount = 10 ether;
+        uint256 amount = parseToTokenAmount(10);
         int256 price = 0.9998e8;
         mockOracle.updatePrice(price);
         uint256 fee = minter.mintingFee();
         uint256 maxFee = minter.MAX_BPS();
-        uint256 actualMintage = minter.calculateMintage(DAI, amount);
+        uint256 actualMintage = minter.calculateMintage(token, amount);
         uint256 amountAfterFee = amount - ((amount * fee) / maxFee);
-        uint256 expectedMintage = (uint256(price) * amountAfterFee) / (10 ** mockOracle.decimals());
+        uint256 expectedMintage = (uint256(price) * amountAfterFee * 10 ** minter.vusdDecimals()) /
+            (10 ** IERC20Metadata(token).decimals() * (10 ** mockOracle.decimals()));
         assertEq(actualMintage, expectedMintage, "Incorrect mintage calculation");
     }
 
     function testMintVUSD() public {
-        uint256 amount = 1000 ether;
-        deal(DAI, address(this), 10 * amount);
-        IERC20(DAI).approve(address(minter), amount);
-        uint256 expectedVUSD = minter.calculateMintage(DAI, amount);
-        minter.mint(DAI, amount, 1, address(this));
+        uint256 amount = parseToTokenAmount(1000);
+        deal(token, address(this), amount);
+        IERC20(token).safeApprove(address(minter), amount);
+        uint256 expectedVUSD = minter.calculateMintage(token, amount);
+        minter.mint(token, amount, 1, address(this));
         uint256 vusdBalance = vusd.balanceOf(address(this));
         assertEq(vusdBalance, expectedVUSD, "Incorrect VUSD minted");
     }
 
     function testSlippage() public {
-        uint256 amount = 1000 ether;
-        deal(DAI, address(this), 10 * amount);
-        IERC20(DAI).approve(address(minter), amount);
+        uint256 amount = parseToTokenAmount(1000);
+        deal(token, address(this), amount);
+        IERC20(token).safeApprove(address(minter), amount);
+        uint256 minAmountOut = parseTokenAmountToVusdAmount(amount) + 1;
         // throw error if slippage is not handled
         vm.expectRevert("mint-amount-is-less-than-minimum");
-        minter.mint(DAI, amount, amount + 1, address(this));
+        minter.mint(token, amount, minAmountOut, address(this));
     }
 
     function testMintVUSDWithFee() public {
-        uint256 amount = 1000 ether;
+        uint256 amount = parseToTokenAmount(1000);
         minter.updateMintingFee(5);
-        deal(DAI, address(this), amount);
-        IERC20(DAI).approve(address(minter), amount);
-        uint256 expectedVUSD = minter.calculateMintage(DAI, amount);
-        minter.mint(DAI, amount, 1, address(this));
+        deal(token, address(this), amount);
+        IERC20(token).safeApprove(address(minter), amount);
+        uint256 expectedVUSD = minter.calculateMintage(token, amount);
+        minter.mint(token, amount, 1, address(this));
         uint256 vusdBalance = vusd.balanceOf(address(this));
         assertEq(vusdBalance, expectedVUSD, "Incorrect VUSD minted");
     }
 
     function testGovernorCanMint() public {
-        uint256 amount = 1000 ether;
+        uint256 amount = parseToTokenAmount(1000);
         uint256 initialSupply = vusd.totalSupply();
         minter.mint(amount);
         uint256 newSupply = vusd.totalSupply();
@@ -124,42 +137,42 @@ contract MinterTest is Test {
     }
 
     function testNonGovernorCannotMint() public {
-        uint256 amount = 1000 ether;
+        uint256 amount = parseToTokenAmount(1000);
         vm.prank(alice);
         vm.expectRevert("caller-is-not-the-governor");
         minter.mint(amount);
     }
 
     function testMintMaxAvailableVUSD() public {
-        uint256 amount = 1000 ether;
+        uint256 amount = parseToTokenAmount(1000);
 
-        deal(DAI, alice, amount);
-        IERC20(DAI).approve(address(minter), amount);
+        deal(token, alice, amount);
 
-        uint256 expectedVUSD = minter.calculateMintage(DAI, amount);
+        uint256 expectedVUSD = minter.calculateMintage(token, amount);
         minter.updateMaxMintAmount(expectedVUSD / 2);
 
         vm.startPrank(alice);
 
-        IERC20(DAI).approve(address(minter), amount);
+        IERC20(token).safeApprove(address(minter), amount);
         vm.expectRevert("mint-limit-reached");
-        minter.mint(DAI, amount, 1, address(this));
+        minter.mint(token, amount, 1, address(this));
+        vm.stopPrank();
     }
 
     function testCalculateMintageWithPriceVariations() public {
         minter.updatePriceTolerance(300);
-        uint256 amountIn = 1000 * 1e18; // 1000 tokens
+        uint256 amountIn = parseToTokenAmount(1000); // 1000 tokens
         MockChainlinkOracle(mockOracle).updatePrice(1.0001e8);
-        uint256 mintage = minter.calculateMintage(DAI, amountIn);
+        uint256 mintage = minter.calculateMintage(token, amountIn);
         // When price > 1 USD, mintage should equal amountIn
-        assertEq(mintage, amountIn, "Mintage should equal amountIn when price > 1 USD");
+        assertEq(mintage, parseTokenAmountToVusdAmount(amountIn), "Mintage should equal amountIn when price > 1 USD");
 
         int256 price = 0.98 * 1e8;
         MockChainlinkOracle(mockOracle).updatePrice(price);
 
-        uint256 mintage2 = minter.calculateMintage(DAI, amountIn);
+        uint256 mintage2 = minter.calculateMintage(token, amountIn);
         require(price >= 0, "Price must be non-negative");
-        uint256 expectedMintage2 = (amountIn * uint256(price)) / 1e8;
+        uint256 expectedMintage2 = parseTokenAmountToVusdAmount((amountIn * uint256(price)) / 1e8);
         assertEq(mintage2, expectedMintage2, "Mintage should be scaled by price when price < 1 USD");
     }
 }
