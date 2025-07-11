@@ -6,4 +6,5 @@
     optimizer = true
     solc = "0.8.3"
     evm_version = "cancun"
+    cache_path = 'cache_forge'
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
