@@ -19,7 +19,7 @@ contract RedeemerTest is Test {
     MockChainlinkOracle mockOracle;
 
     function setUp() public {
-        vm.createSelectFork(vm.envString("NODE_URL"), vm.envUint("FORK_BLOCK_NUMBER"));
+        vm.createSelectFork(vm.envString("FORK_NODE_URL"), vm.envUint("FORK_BLOCK_NUMBER"));
         treasury = new MockTreasury();
         vusd = new VUSD(address(treasury));
         vusd.updateMinter(address(this));

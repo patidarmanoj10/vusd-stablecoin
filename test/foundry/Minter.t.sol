@@ -22,7 +22,7 @@ contract MinterTest is Test {
     MockChainlinkOracle mockOracle;
 
     function setUp() public {
-        vm.createSelectFork(vm.envString("NODE_URL"), vm.envUint("FORK_BLOCK_NUMBER"));
+        vm.createSelectFork(vm.envString("FORK_NODE_URL"), vm.envUint("FORK_BLOCK_NUMBER"));
         governor = address(this);
         vusd = new VUSD(address(0x222));
         minter = new Minter(address(vusd), type(uint256).max);

@@ -21,7 +21,7 @@ contract VUSDTest is Test {
     address carol = makeAddr("carol");
 
     function setUp() public {
-        vm.createSelectFork(vm.envString("NODE_URL"), vm.envUint("FORK_BLOCK_NUMBER"));
+        vm.createSelectFork(vm.envString("FORK_NODE_URL"), vm.envUint("FORK_BLOCK_NUMBER"));
         governor = address(this);
 
         vusd = new VUSD(governor);

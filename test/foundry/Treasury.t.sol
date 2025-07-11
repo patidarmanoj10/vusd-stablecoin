@@ -24,7 +24,7 @@ contract TreasuryTest is Test {
     address bob = makeAddr("bob");
 
     function setUp() public {
-        vm.createSelectFork(vm.envString("NODE_URL"), vm.envUint("FORK_BLOCK_NUMBER"));
+        vm.createSelectFork(vm.envString("FORK_NODE_URL"), vm.envUint("FORK_BLOCK_NUMBER"));
         governor = address(this);
         keeper = makeAddr("keeper");
         redeemer = makeAddr("vusd-redeemer");
