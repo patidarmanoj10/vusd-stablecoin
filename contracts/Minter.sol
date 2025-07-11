@@ -2,22 +2,23 @@
 
 pragma solidity 0.8.3;
 
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/utils/Context.sol";
-import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
-import "./interfaces/chainlink/IAggregatorV3.sol";
-import "./interfaces/compound/ICompound.sol";
-import "./interfaces/IVUSD.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import {Context} from "@openzeppelin/contracts/utils/Context.sol";
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import {IAggregatorV3} from "./interfaces/chainlink/IAggregatorV3.sol";
+import {IComet} from "./interfaces/compound/IComet.sol";
+import {IVUSD} from "./interfaces/IVUSD.sol";
 
-/// @title Minter contract which will mint VUSD 1:1, less minting fee, with DAI, USDC or USDT.
+/// @title Minter contract which will mint VUSD 1:1, less minting fee, with USDC or USDT.
 contract Minter is Context, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using EnumerableSet for EnumerableSet.AddressSet;
 
     string public constant NAME = "VUSD-Minter";
-    string public constant VERSION = "1.4.2";
+    string public constant VERSION = "1.5.0";
 
     IVUSD public immutable vusd;
     uint8 public immutable vusdDecimals;
@@ -28,8 +29,8 @@ contract Minter is Context, ReentrancyGuard {
     uint256 public constant MAX_BPS = 10_000; // 10_000 = 100%
     uint256 public priceTolerance = 100; // 1% based on BPS
 
-    // Token => cToken mapping
-    mapping(address => address) public cTokens;
+    // Token => comet mapping
+    mapping(address => address) public comets;
     // Token => oracle mapping
     mapping(address => address) public oracles;
 
@@ -39,18 +40,15 @@ contract Minter is Context, ReentrancyGuard {
     EnumerableSet.AddressSet private _whitelistedTokens;
 
     // Default whitelist token addresses
-    address private constant DAI = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
     address private constant USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
     address private constant USDT = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
 
-    // cToken addresses for default whitelisted tokens
     //solhint-disable const-name-snakecase
-    address private constant cDAI = 0x5d3a536E4D6DbD6114cc1Ead35777bAB948E3643;
-    address private constant cUSDC = 0x39AA39c021dfbaE8faC545936693aC917d5E7563;
-    address private constant cUSDT = 0xf650C3d88D12dB855b8bf7D11Be6C55A4e07dCC9;
+    // comet addresses for default whitelisted tokens
+    address private constant cUSDCv3 = 0xc3d688B66703497DAA19211EEdff47f25384cdc3;
+    address private constant cUSDTv3 = 0x3Afdc9BCA9213A35503b077a6072F3D0d5AB0840;
 
     // Chainlink price oracle for default whitelisted tokens
-    address private constant DAI_USD = 0xAed0c38402a5d19df6E4c03F4E2DceD6e29c1ee9;
     address private constant USDC_USD = 0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6;
     address private constant USDT_USD = 0x3E7d1eAB13ad0104d2750B8863b489D65364e32D;
 
@@ -65,7 +63,7 @@ contract Minter is Context, ReentrancyGuard {
         uint256 mintage,
         address receiver
     );
-    event WhitelistedTokenAdded(address indexed token, address cToken, address oracle);
+    event WhitelistedTokenAdded(address indexed token, address comet, address oracle);
     event WhitelistedTokenRemoved(address indexed token);
 
     constructor(address _vusd, uint256 _maxMintLimit) {
@@ -73,10 +71,9 @@ contract Minter is Context, ReentrancyGuard {
         vusd = IVUSD(_vusd);
         maxMintLimit = _maxMintLimit;
         vusdDecimals = IERC20Metadata(_vusd).decimals();
-        // Add token into the list, add oracle and cToken into the mapping and approve cToken to spend token
-        _addToken(DAI, cDAI, DAI_USD, 1 hours);
-        _addToken(USDC, cUSDC, USDC_USD, 24 hours);
-        _addToken(USDT, cUSDT, USDT_USD, 24 hours);
+        // Add token into the list, add oracle and comet into the mapping and approve comet to spend token
+        _addToken(USDC, cUSDCv3, USDC_USD, 24 hours);
+        _addToken(USDT, cUSDTv3, USDT_USD, 24 hours);
     }
 
     modifier onlyGovernor() {
@@ -87,22 +84,22 @@ contract Minter is Context, ReentrancyGuard {
     ////////////////////////////// Only Governor //////////////////////////////
     /**
      * @notice Add token as whitelisted token for VUSD system
-     * @dev Add token address in whitelistedTokens list and add cToken in mapping
+     * @dev Add token address in whitelistedTokens list and add comet in mapping
      * @param _token address which we want to add in token list.
-     * @param _cToken CToken address correspond to _token
+     * @param _comet comet address correspond to _token
      * @param _oracle Chainlink oracle address for token/USD feed
      */
     function addWhitelistedToken(
         address _token,
-        address _cToken,
+        address _comet,
         address _oracle,
         uint256 _stalePeriod
     ) external onlyGovernor {
         require(_token != address(0), "token-address-is-zero");
-        require(_cToken != address(0), "cToken-address-is-zero");
+        require(_comet != address(0), "comet-address-is-zero");
         require(_oracle != address(0), "oracle-address-is-zero");
         require(_stalePeriod > 0, "invalid-stale-period");
-        _addToken(_token, _cToken, _oracle, _stalePeriod);
+        _addToken(_token, _comet, _oracle, _stalePeriod);
     }
 
     /**
@@ -111,9 +108,9 @@ contract Minter is Context, ReentrancyGuard {
      */
     function removeWhitelistedToken(address _token) external onlyGovernor {
         require(_whitelistedTokens.remove(_token), "remove-from-list-failed");
-        IERC20(_token).safeApprove(cTokens[_token], 0);
+        IERC20(_token).safeApprove(comets[_token], 0);
         delete stalePeriod[oracles[_token]];
-        delete cTokens[_token];
+        delete comets[_token];
         delete oracles[_token];
         emit WhitelistedTokenRemoved(_token);
     }
@@ -171,12 +168,7 @@ contract Minter is Context, ReentrancyGuard {
      * @param _minAmountOut Minimum amount of VUSD to mint
      * @param _receiver Address of VUSD receiver
      */
-    function mint(
-        address _token,
-        uint256 _amountIn,
-        uint256 _minAmountOut,
-        address _receiver
-    ) external nonReentrant {
+    function mint(address _token, uint256 _amountIn, uint256 _minAmountOut, address _receiver) external nonReentrant {
         _mint(_token, _amountIn, _minAmountOut, _receiver);
     }
 
@@ -223,21 +215,17 @@ contract Minter is Context, ReentrancyGuard {
     }
 
     /**
-     * @dev Add _token into the list, add _cToken in mapping and
-     * approve cToken to spend token
+     * @dev Add _token into the list, add _comet in mapping and
+     * approve comet to spend token
      */
-    function _addToken(
-        address _token,
-        address _cToken,
-        address _oracle,
-        uint256 _stalePeriod
-    ) internal {
+    function _addToken(address _token, address _comet, address _oracle, uint256 _stalePeriod) internal {
+        require(IComet(_comet).baseToken() == _token, "invalid-token");
         require(_whitelistedTokens.add(_token), "add-in-list-failed");
         oracles[_token] = _oracle;
-        cTokens[_token] = _cToken;
+        comets[_token] = _comet;
         stalePeriod[_oracle] = _stalePeriod;
-        IERC20(_token).safeApprove(_cToken, type(uint256).max);
-        emit WhitelistedTokenAdded(_token, _cToken, _oracle);
+        IERC20(_token).safeApprove(_comet, type(uint256).max);
+        emit WhitelistedTokenAdded(_token, _comet, _oracle);
     }
 
     /**
@@ -260,10 +248,9 @@ contract Minter is Context, ReentrancyGuard {
         uint256 _actualAmountIn = _balanceAfter - _balanceBefore;
         _mintage = _calculateMintage(_token, _actualAmountIn);
         require(_mintage >= _minAmountOut, "mint-amount-is-less-than-minimum");
-        address _cToken = cTokens[_token];
 
-        require(CToken(_cToken).mint(_balanceAfter) == 0, "cToken-mint-failed");
-        IERC20(_cToken).safeTransfer(treasury(), IERC20(_cToken).balanceOf(address(this)));
+        IComet(comets[_token]).supplyTo(treasury(), _token, _balanceAfter);
+
         vusd.mint(_receiver, _mintage);
         emit Mint(_token, _amountIn, _actualAmountIn, _mintage, _receiver);
     }
@@ -281,7 +268,7 @@ contract Minter is Context, ReentrancyGuard {
         uint256 _latestPrice = uint256(_price);
 
         // Token is expected to be stable coin only. Ideal price is 1 USD
-        uint256 _oneUSD = 10**_oracleDecimal;
+        uint256 _oneUSD = 10 ** _oracleDecimal;
         uint256 _priceTolerance = (_oneUSD * priceTolerance) / MAX_BPS;
         uint256 _priceUpperBound = _oneUSD + _priceTolerance;
         uint256 _priceLowerBound = _oneUSD - _priceTolerance;
@@ -290,7 +277,7 @@ contract Minter is Context, ReentrancyGuard {
         uint256 _actualAmountIn = mintingFee > 0 ? (_amountIn * (MAX_BPS - mintingFee)) / MAX_BPS : _amountIn;
         _mintage = _latestPrice >= _oneUSD ? _actualAmountIn : (_actualAmountIn * _latestPrice) / _oneUSD;
 
-        _mintage = _mintage * 10**(vusdDecimals - IERC20Metadata(_token).decimals());
+        _mintage = _mintage * 10 ** (vusdDecimals - IERC20Metadata(_token).decimals());
         uint256 _availableMintage = availableMintage();
         require(_availableMintage >= _mintage, "mint-limit-reached");
     }
