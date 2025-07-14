@@ -2,59 +2,58 @@
 
 pragma solidity 0.8.3;
 
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/utils/Context.sol";
-import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
-import "./interfaces/bloq/ISwapManager.sol";
-import "./interfaces/compound/ICompound.sol";
-import "./interfaces/IVUSD.sol";
-import "./interfaces/ITreasury.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import {Context} from "@openzeppelin/contracts/utils/Context.sol";
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import {IComet} from "./interfaces/compound/IComet.sol";
+import {ICometRewards} from "./interfaces/compound/ICometRewards.sol";
+import {ISwapper} from "./interfaces/bloq/ISwapper.sol";
+import {IVUSD} from "./interfaces/IVUSD.sol";
+import {ITreasury} from "./interfaces/ITreasury.sol";
 
-/// @title VUSD Treasury, It stores cTokens and redeem those from Compound as needed.
+/// @title VUSD Treasury, It stores comets and redeem those from Compound as needed.
 contract Treasury is Context, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using EnumerableSet for EnumerableSet.AddressSet;
 
     string public constant NAME = "VUSD-Treasury";
-    string public constant VERSION = "1.3.0";
+    string public constant VERSION = "1.5.0";
 
     IVUSD public immutable vusd;
     address public redeemer;
 
-    ISwapManager public swapManager = ISwapManager(0xC48ea9A2daA4d816e4c9333D6689C70070010174);
+    ISwapper public swapper = ISwapper(0x229f19942612A8dbdec3643CB23F88685CCd56A5);
 
-    // Token => cToken mapping
-    mapping(address => address) public cTokens;
+    // Token => comet mapping
+    mapping(address => address) public comets;
     // Token => oracle mapping
     mapping(address => address) public oracles;
 
     address private constant COMP = 0xc00e94Cb662C3520282E6f5717214004A7f26888;
-    Comptroller private constant COMPTROLLER = Comptroller(0x3d9819210A31b4961b30EF54bE2aeD79B9c9Cd3B);
+    ICometRewards private constant COMET_REWARDS = ICometRewards(0x1B0e765F6224C21223AeA2af16c1C46E38885a40);
 
     EnumerableSet.AddressSet private _whitelistedTokens;
-    EnumerableSet.AddressSet private _cTokenList;
+    EnumerableSet.AddressSet private _cometList;
     EnumerableSet.AddressSet private _keepers;
 
     // Default whitelist token addresses
-    address private constant DAI = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
     address private constant USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
     address private constant USDT = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
 
-    // cToken addresses for default whitelisted tokens
+    // comet addresses for default whitelisted tokens
     // solhint-disable const-name-snakecase
-    address private constant cDAI = 0x5d3a536E4D6DbD6114cc1Ead35777bAB948E3643;
-    address private constant cUSDC = 0x39AA39c021dfbaE8faC545936693aC917d5E7563;
-    address private constant cUSDT = 0xf650C3d88D12dB855b8bf7D11Be6C55A4e07dCC9;
+    address private constant cUSDCv3 = 0xc3d688B66703497DAA19211EEdff47f25384cdc3;
+    address private constant cUSDTv3 = 0x3Afdc9BCA9213A35503b077a6072F3D0d5AB0840;
     // solhint-enable
 
     // Chainlink price oracle for default whitelisted tokens
-    address private constant DAI_USD = 0xAed0c38402a5d19df6E4c03F4E2DceD6e29c1ee9;
     address private constant USDC_USD = 0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6;
     address private constant USDT_USD = 0x3E7d1eAB13ad0104d2750B8863b489D65364e32D;
 
     event UpdatedRedeemer(address indexed previousRedeemer, address indexed newRedeemer);
-    event UpdatedSwapManager(address indexed previousSwapManager, address indexed newSwapManager);
+    event UpdatedSwapper(address indexed previousSwapper, address indexed newSwapper);
 
     constructor(address _vusd) {
         require(_vusd != address(0), "vusd-address-is-zero");
@@ -62,12 +61,11 @@ contract Treasury is Context, ReentrancyGuard {
 
         _keepers.add(_msgSender());
 
-        // Add token into the list, add oracle and cToken into the mapping
-        _addToken(DAI, cDAI, DAI_USD);
-        _addToken(USDC, cUSDC, USDC_USD);
-        _addToken(USDT, cUSDT, USDT_USD);
+        // Add token into the list, add oracle and comet into the mapping
+        _addToken(USDC, cUSDCv3, USDC_USD);
+        _addToken(USDT, cUSDTv3, USDT_USD);
 
-        _approveRouters(swapManager, type(uint256).max);
+        IERC20(COMP).safeApprove(address(swapper), type(uint256).max);
     }
 
     modifier onlyGovernor() {
@@ -88,20 +86,16 @@ contract Treasury is Context, ReentrancyGuard {
     ////////////////////////////// Only Governor //////////////////////////////
     /**
      * @notice Add token into treasury management system
-     * @dev Add token address in whitelistedTokens list and add cToken in mapping
+     * @dev Add token address in whitelistedTokens list and add comet in mapping
      * @param _token address which we want to add in token list.
-     * @param _cToken CToken address correspond to _token
+     * @param _comet comet address correspond to _token
      * @param _oracle Chainlink oracle address for token/USD feed
      */
-    function addWhitelistedToken(
-        address _token,
-        address _cToken,
-        address _oracle
-    ) external onlyGovernor {
+    function addWhitelistedToken(address _token, address _comet, address _oracle) external onlyGovernor {
         require(_token != address(0), "token-address-is-zero");
-        require(_cToken != address(0), "cToken-address-is-zero");
+        require(_comet != address(0), "comet-address-is-zero");
         require(_oracle != address(0), "oracle-address-is-zero");
-        _addToken(_token, _cToken, _oracle);
+        _addToken(_token, _comet, _oracle);
     }
 
     /**
@@ -111,10 +105,10 @@ contract Treasury is Context, ReentrancyGuard {
      */
     function removeWhitelistedToken(address _token) external onlyGovernor {
         require(_whitelistedTokens.remove(_token), "remove-from-list-failed");
-        require(_cTokenList.remove(cTokens[_token]), "remove-from-list-failed");
-        IERC20(_token).safeApprove(cTokens[_token], 0);
-        delete cTokens[_token];
-        delete cTokens[_token];
+        require(_cometList.remove(comets[_token]), "remove-from-list-failed");
+        IERC20(_token).safeApprove(comets[_token], 0);
+        delete comets[_token];
+        delete oracles[_token];
     }
 
     /**
@@ -146,15 +140,16 @@ contract Treasury is Context, ReentrancyGuard {
     }
 
     /**
-     * @notice Update swap manager address
-     * @param _newSwapManager new swap manager address
+     * @notice Update swapper address
+     * @param _swapper new swapper address
      */
-    function updateSwapManager(address _newSwapManager) external onlyGovernor {
-        require(_newSwapManager != address(0), "swap-manager-address-is-zero");
-        emit UpdatedSwapManager(address(swapManager), _newSwapManager);
-        _approveRouters(swapManager, 0);
-        _approveRouters(ISwapManager(_newSwapManager), type(uint256).max);
-        swapManager = ISwapManager(_newSwapManager);
+    function updateSwapper(address _swapper) external onlyGovernor {
+        require(_swapper != address(0), "swap-manager-address-is-zero");
+        emit UpdatedSwapper(address(swapper), _swapper);
+
+        IERC20(COMP).safeApprove(address(swapper), 0);
+        IERC20(COMP).safeApprove(_swapper, type(uint256).max);
+        swapper = ISwapper(_swapper);
     }
 
     ///////////////////////////////////////////////////////////////////////////
@@ -167,23 +162,20 @@ contract Treasury is Context, ReentrancyGuard {
      */
     function claimCompAndConvertTo(address _toToken, uint256 _minOut) external onlyKeeperOrGovernor {
         require(_whitelistedTokens.contains(_toToken), "token-is-not-supported");
-        COMPTROLLER.claimComp(address(this), _cTokenList.values());
-        uint256 _compAmount = IERC20(COMP).balanceOf(address(this));
-        (address[] memory path, uint256 amountOut, uint256 rIdx) = swapManager.bestOutputFixedInput(
-            COMP,
-            _toToken,
-            _compAmount
-        );
-        if (amountOut != 0) {
-            swapManager.ROUTERS(rIdx).swapExactTokensForTokens(
-                _compAmount,
-                _minOut,
-                path,
-                address(this),
-                block.timestamp
-            );
+        uint256 _len = _cometList.length();
+        for (uint256 i; i < _len; i++) {
+            COMET_REWARDS.claim(_cometList.at(i), address(this), true);
         }
-        require(CToken(cTokens[_toToken]).mint(IERC20(_toToken).balanceOf(address(this))) == 0, "cToken-mint-failed");
+
+        uint256 _compAmount = IERC20(COMP).balanceOf(address(this));
+        if (_compAmount > 0) {
+            swapper.swapExactInput(COMP, _toToken, _compAmount, _minOut, address(this));
+        }
+
+        uint256 _tokenAmount = IERC20(_toToken).balanceOf(address(this));
+        if (_tokenAmount > 0) {
+            IComet(comets[_toToken]).supply(_toToken, _tokenAmount);
+        }
     }
 
     /**
@@ -193,10 +185,10 @@ contract Treasury is Context, ReentrancyGuard {
     function migrate(address _newTreasury) external onlyGovernor {
         require(_newTreasury != address(0), "new-treasury-address-is-zero");
         require(address(vusd) == ITreasury(_newTreasury).vusd(), "vusd-mismatch");
-        uint256 _len = _cTokenList.length();
+        uint256 _len = _cometList.length();
         for (uint256 i = 0; i < _len; i++) {
-            address _cToken = _cTokenList.at(i);
-            IERC20(_cToken).safeTransfer(_newTreasury, IERC20(_cToken).balanceOf(address(this)));
+            address _comet = _cometList.at(i);
+            IERC20(_comet).safeTransfer(_newTreasury, IERC20(_comet).balanceOf(address(this)));
         }
     }
 
@@ -217,11 +209,7 @@ contract Treasury is Context, ReentrancyGuard {
      * @param _amount token amount to withdraw
      * @param _tokenReceiver Address of token receiver
      */
-    function withdraw(
-        address _token,
-        uint256 _amount,
-        address _tokenReceiver
-    ) external nonReentrant onlyAuthorized {
+    function withdraw(address _token, uint256 _amount, address _tokenReceiver) external nonReentrant onlyAuthorized {
         _withdraw(_token, _amount, _tokenReceiver);
     }
 
@@ -247,20 +235,18 @@ contract Treasury is Context, ReentrancyGuard {
     function withdrawAll(address[] memory _tokens) external nonReentrant onlyGovernor {
         for (uint256 i = 0; i < _tokens.length; i++) {
             require(_whitelistedTokens.contains(_tokens[i]), "token-is-not-supported");
-            CToken _cToken = CToken(cTokens[_tokens[i]]);
-            require(_cToken.redeem(_cToken.balanceOf(address(this))) == 0, "redeem-failed");
-            IERC20(_tokens[i]).safeTransfer(_msgSender(), IERC20(_tokens[i]).balanceOf(address(this)));
+            IComet(comets[_tokens[i]]).withdrawTo(_msgSender(), _tokens[i], type(uint256).max);
         }
     }
 
     /**
      * @notice Sweep any ERC20 token to governor address
-     * @dev OnlyGovernor can call this and CTokens are not allowed to sweep
+     * @dev OnlyGovernor can call this and comets are not allowed to sweep
      * @param _fromToken Token address to sweep
      */
     function sweep(address _fromToken) external onlyGovernor {
-        // Do not sweep cTokens
-        require(!_cTokenList.contains(_fromToken), "cToken-is-not-allowed-to-sweep");
+        // Do not sweep comets
+        require(!_cometList.contains(_fromToken), "comet-is-not-allowed-to-sweep");
 
         uint256 _amount = IERC20(_fromToken).balanceOf(address(this));
         IERC20(_fromToken).safeTransfer(_msgSender(), _amount);
@@ -268,13 +254,12 @@ contract Treasury is Context, ReentrancyGuard {
 
     /**
      * @notice Current withdrawable amount for given token.
-     * If token is not supported by treasury, no cTokens in mapping, it will return 0.
+     * If token is not supported by treasury, no comets in mapping, it will return 0.
      * @param _token Token to withdraw
      */
     function withdrawable(address _token) external view returns (uint256) {
-        if (cTokens[_token] != address(0)) {
-            CToken _cToken = CToken(cTokens[_token]);
-            return (_cToken.balanceOf(address(this)) * _cToken.exchangeRateStored()) / 1e18;
+        if (comets[_token] != address(0)) {
+            return IComet(comets[_token]).balanceOf(address(this));
         }
         return 0;
     }
@@ -284,9 +269,9 @@ contract Treasury is Context, ReentrancyGuard {
         return vusd.governor();
     }
 
-    /// @notice Return list of cTokens
-    function cTokenList() external view returns (address[] memory) {
-        return _cTokenList.values();
+    /// @notice Return list of comets
+    function cometList() external view returns (address[] memory) {
+        return _cometList.values();
     }
 
     /// @notice Return list of keepers
@@ -304,33 +289,18 @@ contract Treasury is Context, ReentrancyGuard {
         return _whitelistedTokens.values();
     }
 
-    /// @dev Add _token into the list, add _cToken in mapping
-    function _addToken(
-        address _token,
-        address _cToken,
-        address _oracle
-    ) internal {
+    /// @dev Add _token into the list, add _comet in mapping
+    function _addToken(address _token, address _comet, address _oracle) internal {
+        require(IComet(_comet).baseToken() == _token, "invalid-token");
         require(_whitelistedTokens.add(_token), "add-in-list-failed");
-        require(_cTokenList.add(_cToken), "add-in-list-failed");
+        require(_cometList.add(_comet), "add-in-list-failed");
         oracles[_token] = _oracle;
-        cTokens[_token] = _cToken;
-        IERC20(_token).safeApprove(_cToken, type(uint256).max);
+        comets[_token] = _comet;
+        IERC20(_token).safeApprove(_comet, type(uint256).max);
     }
 
-    /// @notice Approve all routers to spend COMP
-    function _approveRouters(ISwapManager _swapManager, uint256 _amount) internal {
-        for (uint256 i = 0; i < _swapManager.N_DEX(); i++) {
-            IERC20(COMP).safeApprove(address(swapManager.ROUTERS(i)), _amount);
-        }
-    }
-
-    function _withdraw(
-        address _token,
-        uint256 _amount,
-        address _tokenReceiver
-    ) internal {
+    function _withdraw(address _token, uint256 _amount, address _tokenReceiver) internal {
         require(_whitelistedTokens.contains(_token), "token-is-not-supported");
-        require(CToken(cTokens[_token]).redeemUnderlying(_amount) == 0, "redeem-underlying-failed");
-        IERC20(_token).safeTransfer(_tokenReceiver, _amount);
+        IComet(comets[_token]).withdrawTo(_tokenReceiver, _token, _amount);
     }
 }

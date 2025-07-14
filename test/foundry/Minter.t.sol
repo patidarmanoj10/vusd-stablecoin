@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.3;
 
-import "../../lib/forge-std/src/Test.sol";
-import "../../contracts/Minter.sol";
-import "../../contracts/VUSD.sol";
-import "./mock/MockChainlinkOracle.sol";
+import {Test} from "forge-std/Test.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Minter} from "contracts/Minter.sol";
+import {VUSD} from "contracts/VUSD.sol";
+import {MockChainlinkOracle} from "test/foundry/mock/MockChainlinkOracle.sol";
+import {USDC, cUSDCv3} from "test/foundry/utils/Address.sol";
 
 contract MinterTest is Test {
     using SafeERC20 for IERC20;
@@ -13,19 +17,19 @@ contract MinterTest is Test {
     Minter minter;
     address governor;
     address alice = address(0x111);
-    address constant token = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48; // USDC
-    address constant cToken = 0x39AA39c021dfbaE8faC545936693aC917d5E7563; // cUSDC
+    address constant token = USDC;
+    address constant comet = cUSDCv3;
     MockChainlinkOracle mockOracle;
 
     function setUp() public {
-        vm.createSelectFork(vm.envString("NODE_URL"), vm.envUint("FORK_BLOCK_NUMBER"));
+        vm.createSelectFork(vm.envString("FORK_NODE_URL"), vm.envUint("FORK_BLOCK_NUMBER"));
         governor = address(this);
         vusd = new VUSD(address(0x222));
         minter = new Minter(address(vusd), type(uint256).max);
         mockOracle = new MockChainlinkOracle(0.999e8);
         vusd.updateMinter(address(minter));
         minter.removeWhitelistedToken(token);
-        minter.addWhitelistedToken(token, cToken, address(mockOracle), 6 hours);
+        minter.addWhitelistedToken(token, comet, address(mockOracle), 6 hours);
     }
 
     function parseToTokenAmount(uint256 amount) internal view returns (uint256) {
@@ -41,7 +45,7 @@ contract MinterTest is Test {
         minter.removeWhitelistedToken(token);
         assertFalse(minter.isWhitelistedToken(token), "Token should not be whitelisted");
 
-        minter.addWhitelistedToken(token, cToken, address(mockOracle), 6 hours);
+        minter.addWhitelistedToken(token, comet, address(mockOracle), 6 hours);
         assertTrue(minter.isWhitelistedToken(token), "Token should be whitelisted");
     }
 

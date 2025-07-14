@@ -11,32 +11,28 @@ A stablecoin pegged to the US Dollar, backed by interest-generating collateral.
    cd vusd-stablecoin
    npm install
    ```
-2. set NODE_URL in env
+2. Install Foundry
+   - follow instruction from official foundry doc [here](https://getfoundry.sh/introduction/installation).
+
+## Test
+1. Setup `FORK_NODE_URL` and `FORK_BLOCK_NUMBER` in env.
     ```sh
-    export NODE_URL=<eth mainnet url>
-    ```
-    Or
-    Use .env file
-    ```sh
+    # Export variables to env via CLI
+    export FORK_NODE_URL=<eth mainnet url>
+    export FORK_BLOCK_NUMBER=<eth mainnet block number>
+    
+    # Another option is to use ".env" file
+
     touch .env
-    # Edit .env file and add NODE_URL
-    NODE_URL=<eth mainnet url>
+    # Edit .env file and add env vars
+    FORK_NODE_URL=<eth mainnet url>
+    FORK_BLOCK_NUMBER=<eth mainnet block number>
     ```
+2. Run `forge test` to run unit tests.
 
-3. Test
-> These tests will run on mainnet fork, which already configured no extra steps needed.
+## Deployment and configuration info
 
-   ```sh
-   npm test
-   ```
-
-4. Run test with coverage
-
-```sh
-npm run coverage
-```
-
-## Mainnet deployment and configuration info
+- `NODE_URL` is required for deployment. Set it in env.
 
 - VUSD is already deployed on chain at `0x677ddbd918637E5F2c79e164D402454dE7dA8619` and we are not releasing new version.
 - Any new release will deploy either Minter, Redeemer and/or Treasury.
@@ -55,18 +51,19 @@ npm run coverage
 
 - Current keeper of VUSD system `0x76d266DFD3754f090488ae12F6Bd115cD7E77eBD`. It can be added in new treasury in step 4.
 
-### Deployment commands
+### Deployment
+> Set `NODE_URL` in env, if not already.
 - Minter
   ```bash
-  npm run deploy -- --tags Minter --gasprice 110000000000 --network mainnet
+  npm run deploy -- --tags Minter --gasprice <gas price> --network mainnet
   ```
 
 - Redeemer
   ```bash
-  npm run deploy -- --tags Redeemer --gasprice 110000000000 --network mainnet
+  npm run deploy -- --tags Redeemer --gasprice <gas price> --network mainnet
   ```
 
 - Treasury
   ```bash
-  npm run deploy -- --tags Treasury --gasprice 110000000000 --network mainnet
+  npm run deploy -- --tags Treasury --gasprice <gas price> --network mainnet
   ```

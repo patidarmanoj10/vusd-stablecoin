@@ -21,12 +21,12 @@ const config: HardhatUserConfig = {
     hardhat: {
       saveDeployments: true,
       forking: {
-        url: process.env.NODE_URL || "https://localhost:8545",
-        blockNumber: process.env.BLOCK_NUMBER ? parseInt(process.env.BLOCK_NUMBER) : undefined,
+        url: process.env.FORK_NODE_URL || "https://localhost:8545",
+        blockNumber: process.env.FORK_BLOCK_NUMBER ? parseInt(process.env.FORK_BLOCK_NUMBER) : undefined,
       },
     },
     mainnet: {
-      url: process.env.NODE_URL,
+      url: process.env.NODE_URL || "",
       chainId: 1,
       gas: 6700000,
       accounts: {mnemonic: process.env.MNEMONIC || junk},
